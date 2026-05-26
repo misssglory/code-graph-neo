@@ -267,7 +267,10 @@ export function createApp(raw) {
 
   function applyRightPaneWidth() {
     document.documentElement.style.setProperty('--right-pane-width', rightPaneWidth + 'px');
-    if (dom.rightPaneWrap) dom.rightPaneWrap.style.width = rightPaneWidth + 'px';
+    if (dom.rightPaneWrap) {
+      dom.rightPaneWrap.style.width = rightPaneWidth + 'px';
+      dom.rightPaneWrap.style.flexBasis = rightPaneWidth + 'px';
+    }
     if (dom.rightPane) dom.rightPane.style.width = '100%';
   }
 
@@ -278,13 +281,19 @@ export function createApp(raw) {
       const startX = event.clientX;
       const startWidth = rightPaneWidth;
       const move = (ev) => {
-        rightPaneWidth = Math.max(280, Math.min(window.innerWidth - 120, startWidth - (ev.clientX - startX)));
+        ev.preventDefault();
+        rightPaneWidth = Math.max(280, Math.min(Math.min(900, window.innerWidth - 120), startWidth - (ev.clientX - startX)));
         applyRightPaneWidth();
       };
       const up = () => {
+        document.body.style.cursor = '';
+        document.body.style.userSelect = '';
         window.removeEventListener('pointermove', move);
         window.removeEventListener('pointerup', up);
       };
+      dom.rightPaneResizeHandle.setPointerCapture?.(event.pointerId);
+      document.body.style.cursor = 'col-resize';
+      document.body.style.userSelect = 'none';
       window.addEventListener('pointermove', move);
       window.addEventListener('pointerup', up);
     });
