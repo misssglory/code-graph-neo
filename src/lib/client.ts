@@ -15,6 +15,7 @@ const pathFromInput = document.getElementById('path-from');
 const pathToInput = document.getElementById('path-to');
 const pathGoBtn = document.getElementById('path-go');
 const pathClearBtn = document.getElementById('path-clear');
+const pathReverseBtn = document.getElementById('path-reverse');
 const pathStatus = document.getElementById('path-status');
 const directedToggle = document.getElementById('directed-toggle');
 const graph = new Graph({ multi: true, allowSelfLoops: true });
@@ -30,6 +31,7 @@ let selectedNode = null;
 let pathNodeSet = new Set();
 let pathEdgeSet = new Set();
 let applyDirections = true;
+let focusedPathField = 'from';
 
 for (const node of raw.nodes) {
   const label = String(node.label || '').toLowerCase();
@@ -200,6 +202,22 @@ function updatePathStatus(message) {
   pathStatus.textContent = message;
 }
 
+function syncFocusedFieldUI() {
+  pathFromInput.dataset.focused = focusedPathField === 'from' ? 'true' : 'false';
+  pathToInput.dataset.focused = focusedPathField === 'to' ? 'true' : 'false';
+}
+
+function assignNodeToFocusedField(nodeId) {
+  if (focusedPathField === 'to') {
+    pathToInput.value = nodeId;
+    updatePathStatus('Assigned clicked node to sink/target.');
+  } else {
+    pathFromInput.value = nodeId;
+    updatePathStatus('Assigned clicked node to source/start.');
+  }
+  syncFocusedFieldUI();
+}
+
 function runPathSearch() {
   const from = resolveNodeInput(pathFromInput.value);
   const to = resolveNodeInput(pathToInput.value);
@@ -228,6 +246,16 @@ function clearPathSearch() {
   pathToInput.value = '';
   updatePathStatus('No path selected.');
   applyVisualState(search.value);
+}
+
+function reversePathInputs() {
+  const from = pathFromInput.value;
+  pathFromInput.value = pathToInput.value;
+  pathToInput.value = from;
+  focusedPathField = focusedPathField === 'from' ? 'to' : 'from';
+  syncFocusedFieldUI();
+  if (pathFromInput.value && pathToInput.value) runPathSearch();
+  else updatePathStatus('Reversed source and sink fields.');
 }
 
 seedColumnLayout();
@@ -358,19 +386,21 @@ function applyVisualState(query = '') {
 search.addEventListener('input', () => applyVisualState(search.value));
 pathGoBtn.addEventListener('click', runPathSearch);
 pathClearBtn.addEventListener('click', clearPathSearch);
+pathReverseBtn.addEventListener('click', reversePathInputs);
 directedToggle.addEventListener('change', () => {
   applyDirections = directedToggle.checked;
   if (pathFromInput.value || pathToInput.value) runPathSearch();
   else updatePathStatus(applyDirections ? 'Directed traversal enabled.' : 'Ignoring edge direction.');
 });
+pathFromInput.addEventListener('focus', () => { focusedPathField = 'from'; syncFocusedFieldUI(); });
+pathToInput.addEventListener('focus', () => { focusedPathField = 'to'; syncFocusedFieldUI(); });
 pathFromInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') runPathSearch(); });
 pathToInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') runPathSearch(); });
 
 sigma.on('clickNode', ({ node }) => {
   selectedNode = node;
   updateInspect(node);
-  if (!pathFromInput.value) pathFromInput.value = node;
-  else if (!pathToInput.value) pathToInput.value = node;
+  assignNodeToFocusedField(node);
 });
 
 sigma.on('enterNode', ({ node }) => {
@@ -383,7 +413,8 @@ sigma.on('leaveNode', () => {
   applyVisualState(search.value);
 });
 
+syncFocusedFieldUI();
 applyVisualState();
-updatePathStatus('No path selected.');
+updatePathStatus('No path selected. Focus source or sink, then click a node to assign it.');
 if (raw.mainKey) updateInspect(raw.mainKey);
 `;

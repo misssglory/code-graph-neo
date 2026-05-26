@@ -21,6 +21,7 @@ export function renderHtml(graphData: GraphData): string {
       --reach: #67db8b;
       --unreach: #ff7e7e;
       --path: #ffd54f;
+      --focus: #8ab4ff;
     }
     * { box-sizing: border-box; }
     body { margin: 0; background: var(--bg); color: var(--text); font-family: Inter, ui-sans-serif, system-ui, sans-serif; }
@@ -38,9 +39,13 @@ export function renderHtml(graphData: GraphData): string {
     .search, .text-input {
       width: 100%; padding: 10px 12px; border-radius: 10px; background: var(--panel-2); border: 1px solid var(--border); color: var(--text);
     }
+    .text-input[data-focused="true"] {
+      border-color: var(--focus);
+      box-shadow: 0 0 0 1px var(--focus) inset;
+    }
     .meta { margin-top: 12px; color: var(--muted); font-size: 13px; line-height: 1.45; }
     .path-grid { display: grid; gap: 8px; margin-top: 8px; }
-    .row { display: flex; gap: 8px; align-items: center; }
+    .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
     .btn {
       padding: 10px 12px; border-radius: 10px; border: 1px solid var(--border); background: var(--panel-2); color: var(--text); cursor: pointer;
     }
@@ -78,7 +83,7 @@ export function renderHtml(graphData: GraphData): string {
   <div class="app">
     <aside class="sidebar">
       <h1>Code graph</h1>
-      <p>This viewer parses the JSON graph dump, renders it with Sigma.js, can search labels, filenames, signatures, and code, and can find paths between nodes.</p>
+      <p>This viewer parses the JSON graph dump, renders it with Sigma.js, can search labels, filenames, signatures, and code, and can find directed or undirected paths between nodes.</p>
       <div class="chips">
         <span class="chip mainchip">main: ${graphData.mainKey ?? 'not found'}</span>
         <span class="chip reachchip">reachable: ${graphData.reachable.length}</span>
@@ -89,14 +94,15 @@ export function renderHtml(graphData: GraphData): string {
       <input id="search" class="search" placeholder="Search labels, files, signatures, or code" />
       <h2>Path finder</h2>
       <div class="path-grid">
-        <input id="path-from" class="text-input" placeholder="From node key or exact label" />
-        <input id="path-to" class="text-input" placeholder="To node key or exact label" />
+        <input id="path-from" class="text-input" data-focused="true" placeholder="Source node key or exact label" />
+        <input id="path-to" class="text-input" data-focused="false" placeholder="Sink node key or exact label" />
         <div class="checkbox-row">
           <input id="directed-toggle" type="checkbox" checked />
           <label for="directed-toggle">Apply edge directions</label>
         </div>
         <div class="row">
           <button id="path-go" class="btn">Find path</button>
+          <button id="path-reverse" class="btn">Reverse</button>
           <button id="path-clear" class="btn">Clear</button>
         </div>
         <div id="path-status" class="status-box">No path selected.</div>
@@ -110,7 +116,7 @@ export function renderHtml(graphData: GraphData): string {
         <a href="/?layout=columns">columns</a>
         <a href="/?layout=forceatlas2">forceatlas2</a>
       </div>
-      <div id="selection" class="meta">Click a node to inspect it. Clicking nodes also fills the path inputs.</div>
+      <div id="selection" class="meta">Focus source or sink, then click a node to assign it. The focused field gets the clicked node.</div>
     </aside>
     <main class="stage">
       <div id="graph-container"></div>
