@@ -11,6 +11,7 @@ export function setActiveTab(tabButtons, tabPanels, tabId) {
 
 export function setSidebarCollapsed(appRoot, button, collapsed) {
   appRoot.dataset.sidebarCollapsed = collapsed ? 'true' : 'false';
-  button.textContent = collapsed ? '→' : '←';
+  button.textContent = collapsed ? '←' : '→';
   button.setAttribute('aria-label', collapsed ? 'Expand panel' : 'Collapse panel');
+  button.setAttribute('title', collapsed ? 'Expand panel' : 'Collapse panel');
 }

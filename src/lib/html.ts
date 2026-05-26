@@ -14,8 +14,6 @@ export function renderHtml(graphData: GraphData): string {
       --bg: #000000;
       --panel-alpha: 0.58;
       --panel-alpha-2: 0.48;
-      --panel: rgba(0, 0, 0, var(--panel-alpha));
-      --panel-2: rgba(0, 0, 0, var(--panel-alpha-2));
       --text: #ffffff;
       --muted: #c7cfdb;
       --border: rgba(255,255,255,0.12);
@@ -32,9 +30,9 @@ export function renderHtml(graphData: GraphData): string {
     body { margin: 0; background: radial-gradient(circle at top left, rgba(69,95,120,0.12), transparent 32%), #000; color: var(--text); font-family: Inter, ui-sans-serif, system-ui, sans-serif; }
     .app { display: grid; grid-template-columns: 1fr var(--right-pane-width); min-height: 100vh; }
     .stage { position: relative; min-height: 100vh; }
-    .right-pane-wrap { position: relative; width: var(--right-pane-width); }
-    .right-pane { width: 100%; height: 100vh; background: var(--panel); border-left: 1px solid var(--border); padding: 16px; overflow: auto; backdrop-filter: blur(18px); }
-    .right-pane-resize-handle { position: absolute; top: 0; left: 0; width: 8px; height: 100%; cursor: col-resize; background: linear-gradient(to right, transparent, rgba(255,255,255,0.08), transparent); }
+    .right-pane-wrap { position: relative; width: var(--right-pane-width); min-width: 56px; max-width: calc(100vw - 120px); flex-shrink: 0; }
+    .right-pane { width: 100%; height: 100vh; background: rgba(0,0,0,var(--panel-alpha)); border-left: 1px solid var(--border); padding: 16px; overflow: auto; backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px); }
+    .right-pane-resize-handle { position: absolute; top: 0; left: 0; width: 10px; height: 100%; cursor: col-resize; z-index: 20; background: linear-gradient(to right, rgba(255,255,255,0.10), rgba(255,255,255,0.03), transparent); }
     h1 { margin: 0 0 8px; font-size: 20px; }
     h2 { margin: 0 0 8px; font-size: 14px; color: var(--text); }
     h3 { margin: 14px 0 8px; font-size: 13px; color: var(--text); }
@@ -44,7 +42,7 @@ export function renderHtml(graphData: GraphData): string {
     .tab-btn, .btn { padding: 10px 12px; border-radius: 10px; border: 1px solid var(--border); background: rgba(0,0,0,0.55); color: var(--text); cursor: pointer; }
     .tab-btn[data-active="true"], .btn[data-active="true"] { background: rgba(0,0,0,0.82); }
     .btn:hover, .tab-btn:hover { background: rgba(0,0,0,0.72); }
-    .section-card { background: var(--panel-2); border: 1px solid var(--border); border-radius: 14px; padding: 12px; margin-top: 12px; }
+    .section-card { background: rgba(0,0,0,var(--panel-alpha-2)); border: 1px solid var(--border); border-radius: 14px; padding: 12px; margin-top: 12px; }
     .chips { display: flex; flex-wrap: wrap; gap: 8px; margin: 14px 0; }
     .chip { padding: 5px 9px; border-radius: 999px; border: 1px solid var(--border); background: rgba(0,0,0,0.62); color: #fff; font-size: 12px; }
     .mainchip { color: var(--main); }
@@ -85,17 +83,17 @@ export function renderHtml(graphData: GraphData): string {
     .path-file { font-size: 11px; color: var(--muted); }
     .path-empty { color: var(--muted); font-size: 13px; }
     [hidden] { display: none !important; }
-    .collapsed-only { display: none; }
     .app[data-sidebar-collapsed="true"] { grid-template-columns: 1fr 56px; }
-    .app[data-sidebar-collapsed="true"] .right-pane-wrap { width: 56px; }
+    .app[data-sidebar-collapsed="true"] .right-pane-wrap { width: 56px !important; }
     .app[data-sidebar-collapsed="true"] .right-pane-resize-handle { display: none; }
     .app[data-sidebar-collapsed="true"] .tab-row,
     .app[data-sidebar-collapsed="true"] .sidebar-content,
     .app[data-sidebar-collapsed="true"] h1,
     .app[data-sidebar-collapsed="true"] p,
     .app[data-sidebar-collapsed="true"] .chips { display: none; }
-    .app[data-sidebar-collapsed="true"] .collapsed-only { display: flex; justify-content: center; align-items: flex-start; }
     .arrow-btn { width: 32px; height: 32px; padding: 0; display: inline-flex; align-items: center; justify-content: center; font-size: 18px; }
+    .app[data-sidebar-collapsed="true"] .topbar { justify-content: center; margin-bottom: 0; }
+    .app[data-sidebar-collapsed="true"] .topbar .row { width: 100%; justify-content: center; }
     .token.comment, .token.prolog, .token.doctype, .token.cdata { color: #6a9955; }
     .token.punctuation { color: #d4d4d4; }
     .token.namespace { opacity: 0.7; }
@@ -110,14 +108,13 @@ export function renderHtml(graphData: GraphData): string {
 <body>
   <div id="app-root" class="app" data-sidebar-collapsed="false">
     <main class="stage"><div id="graph-container"></div></main>
-    <div class="right-pane-wrap">
+    <div id="right-pane-wrap" class="right-pane-wrap">
       <div id="right-pane-resize-handle" class="right-pane-resize-handle"></div>
       <aside id="right-pane" class="right-pane">
         <div class="topbar">
           <h1>Code graph</h1>
-          <div class="row"><button id="collapse-sidebar" class="btn arrow-btn" aria-label="Collapse panel">←</button></div>
+          <div class="row"><button id="collapse-sidebar" class="btn arrow-btn" aria-label="Collapse panel" title="Collapse panel">→</button></div>
         </div>
-        <div class="collapsed-only"><button id="collapse-sidebar-collapsed" class="btn arrow-btn" aria-label="Expand panel">→</button></div>
         <p>This viewer combines code inspection, settings, and path exploration in one transparent right panel.</p>
         <div class="chips">
           <span class="chip mainchip mono">main: ${graphData.mainKey ?? 'not found'}</span>
@@ -193,7 +190,6 @@ export function renderHtml(graphData: GraphData): string {
         </div>
       </aside>
     </div>
-  </div>
   <script>window.__GRAPH__ = ${JSON.stringify(graphData)};</script>
   <script type="module">
 ${clientCode}

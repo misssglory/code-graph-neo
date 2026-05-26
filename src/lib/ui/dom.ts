@@ -29,6 +29,7 @@ export function createDom() {
     sidebarTabs: document.querySelectorAll('[data-tab-button]'),
     sidebarPanels: document.querySelectorAll('[data-tab-panel]'),
     rightPane: document.getElementById('right-pane'),
+    rightPaneWrap: document.getElementById('right-pane-wrap'),
     rightPaneResizeHandle: document.getElementById('right-pane-resize-handle'),
   };
 }
