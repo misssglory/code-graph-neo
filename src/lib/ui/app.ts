@@ -27,7 +27,8 @@ export function createApp(raw) {
   let pathEdgeSet = new Set();
   let layoutMode = new URL(window.location.href).searchParams.get('layout') || 'columns';
   let mainComponentFocusMode = false;
-  let rightPaneWidth = 430;
+  let rightPaneWidth = 420;
+  let rightPaneHeight = Math.max(360, window.innerHeight - 32);
 
   function refreshStateForCurrentMain() { recomputeMainComponentState(state); }
 
@@ -265,25 +266,34 @@ export function createApp(raw) {
     if (state.currentMainPath) dom.mainSourceSelect.value = state.currentMainPath;
   }
 
-  function applyRightPaneWidth() {
-    document.documentElement.style.setProperty('--right-pane-width', rightPaneWidth + 'px');
+  function applyFloatingPaneSize() {
+    document.documentElement.style.setProperty('--pane-width', rightPaneWidth + 'px');
+    document.documentElement.style.setProperty('--pane-height', rightPaneHeight + 'px');
     if (dom.rightPaneWrap) {
       dom.rightPaneWrap.style.width = rightPaneWidth + 'px';
-      dom.rightPaneWrap.style.flexBasis = rightPaneWidth + 'px';
+      dom.rightPaneWrap.style.height = rightPaneHeight + 'px';
     }
-    if (dom.rightPane) dom.rightPane.style.width = '100%';
+    if (dom.rightPane) {
+      dom.rightPane.style.width = '100%';
+      dom.rightPane.style.height = '100%';
+    }
   }
 
   function attachRightPaneResize() {
-    if (!dom.rightPaneResizeHandle) return;
-    dom.rightPaneResizeHandle.addEventListener('pointerdown', (event) => {
+    if (!dom.rightPaneResizeCorner) return;
+    dom.rightPaneResizeCorner.addEventListener('pointerdown', (event) => {
       event.preventDefault();
       const startX = event.clientX;
+      const startY = event.clientY;
       const startWidth = rightPaneWidth;
+      const startHeight = rightPaneHeight;
       const move = (ev) => {
         ev.preventDefault();
-        rightPaneWidth = Math.max(280, Math.min(Math.min(900, window.innerWidth - 120), startWidth - (ev.clientX - startX)));
-        applyRightPaneWidth();
+        const maxWidth = Math.min(900, window.innerWidth - 32);
+        const maxHeight = window.innerHeight - 32;
+        rightPaneWidth = Math.max(280, Math.min(maxWidth, startWidth - (ev.clientX - startX)));
+        rightPaneHeight = Math.max(220, Math.min(maxHeight, startHeight + (ev.clientY - startY)));
+        applyFloatingPaneSize();
       };
       const up = () => {
         document.body.style.cursor = '';
@@ -291,8 +301,8 @@ export function createApp(raw) {
         window.removeEventListener('pointermove', move);
         window.removeEventListener('pointerup', up);
       };
-      dom.rightPaneResizeHandle.setPointerCapture?.(event.pointerId);
-      document.body.style.cursor = 'col-resize';
+      dom.rightPaneResizeCorner.setPointerCapture?.(event.pointerId);
+      document.body.style.cursor = 'nesw-resize';
       document.body.style.userSelect = 'none';
       window.addEventListener('pointermove', move);
       window.addEventListener('pointerup', up);
@@ -389,7 +399,7 @@ export function createApp(raw) {
   dom.collapseSidebarBtn.addEventListener('click', () => {
     const collapsed = dom.appRoot.dataset.sidebarCollapsed !== 'true';
     setSidebarCollapsed(dom.appRoot, dom.collapseSidebarBtn, collapsed);
-    if (!collapsed) applyRightPaneWidth();
+    if (!collapsed) applyFloatingPaneSize();
   });
   dom.mainComponentFocusBtn.addEventListener('click', () => {
     mainComponentFocusMode = !mainComponentFocusMode;
@@ -432,7 +442,7 @@ export function createApp(raw) {
   syncFocusedFieldUI();
   setActiveTab(dom.sidebarTabs, dom.sidebarPanels, 'code-search');
   setSidebarCollapsed(dom.appRoot, dom.collapseSidebarBtn, false);
-  applyRightPaneWidth();
+  applyFloatingPaneSize();
   attachRightPaneResize();
   renderPathList();
   updatePathStatus('No path selected. Focus source or sink, then click a node to assign it.');
