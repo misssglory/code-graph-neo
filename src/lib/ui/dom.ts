@@ -30,6 +30,6 @@ export function createDom() {
     sidebarPanels: document.querySelectorAll('[data-tab-panel]'),
     rightPane: document.getElementById('right-pane'),
     rightPaneWrap: document.getElementById('right-pane-wrap'),
-    rightPaneResizeHandle: document.getElementById('right-pane-resize-handle'),
+    rightPaneResizeCorner: document.getElementById('right-pane-resize-corner'),
   };
 }

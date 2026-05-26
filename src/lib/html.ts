@@ -24,7 +24,10 @@ export function renderHtml(graphData: GraphData): string {
       --focus: #8ab4ff;
       --outside: #8f9bb3;
       --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-      --right-pane-width: 420px;
+      --pane-width: 420px;
+      --pane-height: calc(100vh - 32px);
+      --pane-top: 16px;
+      --pane-right: 16px;
     }
     * { box-sizing: border-box; }
     html, body { height: 100%; }
@@ -36,44 +39,59 @@ export function renderHtml(graphData: GraphData): string {
       overflow: hidden;
     }
     .app {
-      display: flex;
-      min-height: 100vh;
+      position: relative;
       width: 100vw;
+      height: 100vh;
+      overflow: hidden;
     }
     .stage {
-      position: relative;
-      min-height: 100vh;
-      flex: 1 1 auto;
+      position: absolute;
+      inset: 0;
       min-width: 0;
+      min-height: 0;
+    }
+    #graph-container {
+      position: absolute;
+      inset: 0;
     }
     .right-pane-wrap {
-      position: relative;
-      width: var(--right-pane-width);
+      position: absolute;
+      top: var(--pane-top);
+      right: var(--pane-right);
+      width: var(--pane-width);
+      height: var(--pane-height);
       min-width: 56px;
-      max-width: min(900px, calc(100vw - 120px));
-      height: 100vh;
-      flex: 0 0 var(--right-pane-width);
+      min-height: 56px;
+      max-width: min(900px, calc(100vw - 32px));
+      max-height: calc(100vh - 32px);
+      z-index: 30;
+      pointer-events: auto;
     }
     .right-pane {
+      position: relative;
       width: 100%;
-      height: 100vh;
+      height: 100%;
       background: rgba(8, 10, 14, var(--panel-alpha));
-      border-left: 1px solid var(--border);
+      border: 1px solid var(--border);
+      border-radius: 18px;
       padding: 16px;
       overflow: auto;
       backdrop-filter: blur(18px);
       -webkit-backdrop-filter: blur(18px);
-      box-shadow: -12px 0 30px rgba(0,0,0,0.22);
+      box-shadow: 0 12px 30px rgba(0,0,0,0.25);
     }
-    .right-pane-resize-handle {
+    .right-pane-resize-corner {
       position: absolute;
-      top: 0;
-      left: 0;
-      width: 12px;
-      height: 100%;
-      cursor: col-resize;
-      z-index: 40;
-      background: linear-gradient(to right, rgba(255,255,255,0.12), rgba(255,255,255,0.04), transparent);
+      left: -2px;
+      bottom: -2px;
+      width: 22px;
+      height: 22px;
+      cursor: nesw-resize;
+      z-index: 50;
+      border-bottom-left-radius: 16px;
+      background:
+        linear-gradient(135deg, transparent 0 42%, rgba(255,255,255,0.08) 42% 50%, transparent 50% 62%, rgba(255,255,255,0.14) 62% 70%, transparent 70%),
+        radial-gradient(circle at bottom left, rgba(255,255,255,0.12), transparent 70%);
     }
     h1 { margin: 0 0 8px; font-size: 20px; }
     h2 { margin: 0 0 8px; font-size: 14px; color: var(--text); }
@@ -128,7 +146,6 @@ export function renderHtml(graphData: GraphData): string {
     .checkbox-row { display: flex; gap: 8px; align-items: center; color: var(--muted); font-size: 13px; margin-top: 8px; }
     .range-row { display: grid; grid-template-columns: 1fr auto; gap: 10px; align-items: center; margin-top: 8px; }
     .range-value { color: var(--muted); font-family: var(--mono); font-size: 12px; min-width: 42px; text-align: right; }
-    #graph-container { position: absolute; inset: 0; }
     .inspect { width: 100%; background: transparent; border: 0; padding: 0; color: var(--muted); line-height: 1.45; box-shadow: none; max-height: none; overflow: visible; }
     .inspect strong { color: var(--text); }
     .legend-row { display: flex; gap: 8px; align-items: center; margin-top: 10px; color: var(--muted); font-size: 13px; }
@@ -188,9 +205,13 @@ export function renderHtml(graphData: GraphData): string {
     [hidden] { display: none !important; }
     .app[data-sidebar-collapsed="true"] .right-pane-wrap {
       width: 56px !important;
-      flex-basis: 56px !important;
+      height: 56px !important;
     }
-    .app[data-sidebar-collapsed="true"] .right-pane-resize-handle { display: none; }
+    .app[data-sidebar-collapsed="true"] .right-pane-resize-corner { display: none; }
+    .app[data-sidebar-collapsed="true"] .right-pane {
+      overflow: hidden;
+      padding: 12px;
+    }
     .app[data-sidebar-collapsed="true"] .tab-row,
     .app[data-sidebar-collapsed="true"] .sidebar-content,
     .app[data-sidebar-collapsed="true"] h1,
@@ -222,13 +243,12 @@ export function renderHtml(graphData: GraphData): string {
   <div id="app-root" class="app" data-sidebar-collapsed="false">
     <main class="stage"><div id="graph-container"></div></main>
     <div id="right-pane-wrap" class="right-pane-wrap">
-      <div id="right-pane-resize-handle" class="right-pane-resize-handle"></div>
       <aside id="right-pane" class="right-pane">
         <div class="topbar">
           <h1>Code graph</h1>
           <div class="row"><button id="collapse-sidebar" class="btn arrow-btn" aria-label="Collapse panel" title="Collapse panel">→</button></div>
         </div>
-        <p>This viewer combines code inspection, settings, and path exploration in one transparent right panel.</p>
+        <p>This viewer combines code inspection, settings, and path exploration in one transparent floating panel.</p>
         <div class="chips">
           <span class="chip mainchip mono">main: ${graphData.mainKey ?? 'not found'}</span>
           <span class="chip reachchip">used in main component</span>
@@ -302,6 +322,7 @@ export function renderHtml(graphData: GraphData): string {
           </section>
         </div>
       </aside>
+      <div id="right-pane-resize-corner" class="right-pane-resize-corner" aria-hidden="true"></div>
     </div>
   </div>
   <script>window.__GRAPH__ = ${JSON.stringify(graphData)};</script>
