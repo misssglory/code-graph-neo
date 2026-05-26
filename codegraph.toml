@@ -9,7 +9,7 @@ render_edge_direction = true
 [graph]
 layout = "columns"
 node_size_mode = "status"
-node_size_base = 4
+node_size_base = 6
 node_size_code_factor = 0.99
 apply_directions = true
 
