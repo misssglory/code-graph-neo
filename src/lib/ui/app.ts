@@ -8,27 +8,76 @@ import { buildGraphState, recomputeMainComponentState, computeNodeSize, sourcePr
 import { applyPaneTransparency, setActiveTab, setSidebarCollapsed } from './layout.ts';
 import { escapeHtml, renderCodeBlock } from './render.ts';
 
-export function createApp(raw) {
+function hashString(input) {
+  let h = 2166136261;
+  for (let i = 0; i < input.length; i++) {
+    h ^= input.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return h >>> 0;
+}
+
+function makeFileColorMap(paths, palette) {
+  const unique = [...new Set(paths.filter(Boolean))].sort();
+  const map = new Map();
+  unique.forEach((path) => map.set(path, palette[hashString(path) % palette.length]));
+  return map;
+}
+
+function hexToRgb(hex) {
+  const value = hex.replace('#', '');
+  const normalized = value.length === 3 ? value.split('').map((c) => c + c).join('') : value;
+  const n = parseInt(normalized, 16);
+  return { r: (n >> 16) & 255, g: (n >> 8) & 255, b: n & 255 };
+}
+
+function rgba(hex, alpha) {
+  const { r, g, b } = hexToRgb(hex);
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
+
+function drawArrowHead(context, x1, y1, x2, y2, color, size) {
+  const angle = Math.atan2(y2 - y1, x2 - x1);
+  const len = Math.max(7, size * 3.2);
+  context.fillStyle = color;
+  context.beginPath();
+  context.moveTo(x2, y2);
+  context.lineTo(x2 - len * Math.cos(angle - Math.PI / 7), y2 - len * Math.sin(angle - Math.PI / 7));
+  context.lineTo(x2 - len * Math.cos(angle + Math.PI / 7), y2 - len * Math.sin(angle + Math.PI / 7));
+  context.closePath();
+  context.fill();
+}
+
+export function createApp(bootstrap) {
+  const raw = bootstrap?.graph || bootstrap;
+  const config = bootstrap?.config || {};
+  const uiConfig = config.ui || {};
+  const graphConfig = config.graph || {};
+  const colorConfig = config.colors || {};
+  const palette = Array.isArray(colorConfig.file_palette) && colorConfig.file_palette.length ? colorConfig.file_palette : ['#63d7ff', '#ff7e7e', '#67db8b', '#ffd54f'];
+
   const dom = createDom();
   const graph = new Graph({ multi: true, allowSelfLoops: true });
   const state = buildGraphState(raw);
+  const fileColorByPath = makeFileColorMap(state.raw.nodes.map((n) => n.path || ''), palette);
 
   let hoveredNode = null;
   let selectedNode = raw.mainKey || null;
-  let applyDirections = true;
+  let applyDirections = Boolean(graphConfig.apply_directions ?? true);
+  let renderEdgeDirection = Boolean(uiConfig.render_edge_direction ?? true);
   let focusedPathField = 'from';
-  let showLineNumbers = false;
-  let nodeSizeMode = 'status';
-  let nodeSizeBase = 11;
-  let nodeSizeCodeFactor = 0.015;
-  let paneTransparency = 0.58;
+  let showLineNumbers = Boolean(uiConfig.show_line_numbers ?? false);
+  let nodeSizeMode = graphConfig.node_size_mode || 'status';
+  let nodeSizeBase = Number(graphConfig.node_size_base ?? 11);
+  let nodeSizeCodeFactor = Number(graphConfig.node_size_code_factor ?? 0.015);
+  let paneTransparency = Number(uiConfig.pane_transparency ?? 0.58);
   let currentPath = [];
   let pathNodeSet = new Set();
   let pathEdgeSet = new Set();
-  let layoutMode = new URL(window.location.href).searchParams.get('layout') || 'columns';
+  let layoutMode = new URL(window.location.href).searchParams.get('layout') || graphConfig.layout || 'columns';
   let mainComponentFocusMode = false;
-  let rightPaneWidth = 420;
-  let rightPaneHeight = Math.max(360, window.innerHeight - 32);
+  let rightPaneWidth = Number(uiConfig.pane_width ?? 420);
+  let rightPaneHeight = Math.max(360, Number(uiConfig.pane_height ?? (window.innerHeight - 32)));
 
   function refreshStateForCurrentMain() { recomputeMainComponentState(state); }
 
@@ -46,6 +95,7 @@ export function createApp(raw) {
           signature: node.signature || '',
           sourceSnippet: node.sourceSnippet || '',
           range: node.range || null,
+          borderColor: fileColorByPath.get(path || '') || '#8f9bb3',
           x: col * 8 + ((row % 2) * 0.35),
           y: row * 1.8,
           size: 10,
@@ -66,6 +116,7 @@ export function createApp(raw) {
       if (graph.hasNode(node.key)) {
         graph.setNodeAttribute(node.key, 'size', computeNodeSize({ state, nodeId: node.key, nodeSizeMode, nodeSizeBase, nodeSizeCodeFactor }));
         graph.setNodeAttribute(node.key, 'color', color);
+        graph.setNodeAttribute(node.key, 'borderColor', fileColorByPath.get(node.path || '') || '#8f9bb3');
       }
     }
   }
@@ -80,7 +131,13 @@ export function createApp(raw) {
       const color = bothMainComponent ? (bothUsed ? '#58667f' : '#6b4040') : '#404852';
       const key = 'e' + edgeId++;
       state.baseEdgeColor.set(key, color);
-      graph.addDirectedEdgeWithKey(key, edge.source, edge.target, { color, size: bothUsed ? 2 : 1, type: 'line' });
+      graph.addDirectedEdgeWithKey(key, edge.source, edge.target, {
+        color,
+        size: bothUsed ? 2 : 1,
+        type: 'line',
+        sourceColor: graph.getNodeAttribute(edge.source, 'borderColor') || '#63d7ff',
+        targetColor: graph.getNodeAttribute(edge.target, 'borderColor') || '#ff7e7e',
+      });
     }
   }
 
@@ -92,6 +149,8 @@ export function createApp(raw) {
       state.baseEdgeColor.set(edge, color);
       graph.setEdgeAttribute(edge, 'color', color);
       graph.setEdgeAttribute(edge, 'size', bothUsed ? 2 : 1);
+      graph.setEdgeAttribute(edge, 'sourceColor', graph.getNodeAttribute(source, 'borderColor') || '#63d7ff');
+      graph.setEdgeAttribute(edge, 'targetColor', graph.getNodeAttribute(target, 'borderColor') || '#ff7e7e');
     });
   }
 
@@ -193,6 +252,7 @@ export function createApp(raw) {
     dom.inspect.innerHTML = '<strong>' + escapeHtml(attrs.label) + '</strong><br>' +
       '<span class="mono">key: ' + escapeHtml(nodeId) + '</span><br>' +
       '<span class="mono">path: ' + escapeHtml(attrs.path || 'unknown') + '</span><br>' +
+      '<span class="mono">file border: ' + escapeHtml(attrs.borderColor || 'unknown') + '</span><br>' +
       'type: ' + escapeHtml(attrs.typeName || 'unknown') + '<br>' +
       'visibility: ' + escapeHtml(attrs.visibility || 'unknown') + '<br>' +
       'range: ' + escapeHtml(range) + '<br>' +
@@ -230,6 +290,7 @@ export function createApp(raw) {
       else if (hasPath && onPath) color = '#ffd54f';
       else if (!related) color = 'rgba(255,255,255,0.14)';
       graph.setNodeAttribute(node, 'color', color);
+      graph.setNodeAttribute(node, 'borderAlpha', hidden ? 0 : (!related ? 0.30 : 1));
       const baseSize = computeNodeSize({ state, nodeId: node, nodeSizeMode, nodeSizeBase, nodeSizeCodeFactor });
       graph.setNodeAttribute(node, 'size', onPath ? baseSize + 3 : hoveredNode === node || selectedNode === node ? baseSize + 2 : baseSize);
       graph.setNodeAttribute(node, 'forceLabel', hoveredNode === node || node === state.currentMainKey || onPath || selectedNode === node);
@@ -309,6 +370,35 @@ export function createApp(raw) {
     });
   }
 
+  function drawDirectionOverlay() {
+    if (!renderEdgeDirection) return;
+    const ctx = sigma.getCanvases()?.edgeLabels;
+    if (!ctx) return;
+    const context = ctx.getContext('2d');
+    if (!context) return;
+    graph.forEachEdge((edge, attrs, source, target) => {
+      if (graph.getEdgeAttribute(edge, 'hidden')) return;
+      const sourceData = sigma.getNodeDisplayData(source);
+      const targetData = sigma.getNodeDisplayData(target);
+      if (!sourceData || !targetData) return;
+      const size = graph.getEdgeAttribute(edge, 'size') || 1;
+      const sourceColor = graph.getEdgeAttribute(edge, 'sourceColor') || '#63d7ff';
+      const targetColor = graph.getEdgeAttribute(edge, 'targetColor') || '#ff7e7e';
+      const onPath = pathEdgeSet.has(edge);
+      const gradient = context.createLinearGradient(sourceData.x, sourceData.y, targetData.x, targetData.y);
+      gradient.addColorStop(0, onPath ? '#ffd54f' : rgba(sourceColor, 0.18));
+      gradient.addColorStop(0.65, onPath ? '#ffd54f' : rgba(sourceColor, 0.55));
+      gradient.addColorStop(1, onPath ? '#ffd54f' : rgba(targetColor, 0.95));
+      context.strokeStyle = gradient;
+      context.lineWidth = Math.max(1.5, size + 0.25);
+      context.beginPath();
+      context.moveTo(sourceData.x, sourceData.y);
+      context.lineTo(targetData.x, targetData.y);
+      context.stroke();
+      drawArrowHead(context, sourceData.x, sourceData.y, targetData.x, targetData.y, onPath ? '#ffd54f' : targetColor, size);
+    });
+  }
+
   refreshStateForCurrentMain();
   seedColumnLayout();
   refreshBaseNodeStyles();
@@ -327,8 +417,19 @@ export function createApp(raw) {
     itemSizesReference: 'screen',
     labelColor: { color: '#eef2ff' },
     defaultDrawNodeHover: () => {},
+    defaultDrawEdgeLabel: () => {},
     defaultDrawNodeLabel: (context, data) => {
       const size = data.size || 1;
+      const borderColor = data.borderColor || '#8f9bb3';
+      const borderAlpha = data.borderAlpha == null ? 1 : data.borderAlpha;
+      context.beginPath();
+      context.fillStyle = rgba(borderColor, 0.95 * borderAlpha);
+      context.arc(data.x, data.y, size + 2.3, 0, Math.PI * 2);
+      context.fill();
+      context.beginPath();
+      context.fillStyle = data.color || '#8f9bb3';
+      context.arc(data.x, data.y, Math.max(1, size - 0.2), 0, Math.PI * 2);
+      context.fill();
       if (size < 6 && !data.forceLabel) return;
       const label = String(data.label || '');
       const x = data.x + size + 6;
@@ -358,6 +459,7 @@ export function createApp(raw) {
   });
 
   sigma.getCamera().animatedReset({ duration: 0 });
+  sigma.on('afterRender', drawDirectionOverlay);
 
   dom.search.addEventListener('input', () => applyVisualState(dom.search.value));
   dom.pathGoBtn.addEventListener('click', runPathSearch);
@@ -381,6 +483,10 @@ export function createApp(raw) {
     applyDirections = dom.directedToggle.checked;
     if (dom.pathFromInput.value || dom.pathToInput.value) runPathSearch();
     else updatePathStatus(applyDirections ? 'Directed traversal enabled.' : 'Ignoring edge direction.');
+  });
+  dom.renderEdgeDirectionToggle.addEventListener('change', () => {
+    renderEdgeDirection = dom.renderEdgeDirectionToggle.checked;
+    sigma.refresh();
   });
   dom.lineNumbersToggle.addEventListener('change', () => {
     showLineNumbers = dom.lineNumbersToggle.checked;
@@ -420,11 +526,8 @@ export function createApp(raw) {
   dom.pathToInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') runPathSearch(); });
   sigma.on('clickNode', ({ node }) => {
     selectedNode = node;
-    if (mainComponentFocusMode) {
-      setMainFromNode(node);
-    } else {
-      assignNodeToFocusedField(node);
-    }
+    if (mainComponentFocusMode) setMainFromNode(node);
+    else assignNodeToFocusedField(node);
     updateInspect(node);
     applyVisualState(dom.search.value);
   });
@@ -436,11 +539,14 @@ export function createApp(raw) {
   dom.sizeBaseInput.value = String(nodeSizeBase);
   dom.sizeCodeFactorInput.value = String(nodeSizeCodeFactor);
   dom.transparencyInput.value = String(paneTransparency);
+  dom.lineNumbersToggle.checked = showLineNumbers;
+  dom.directedToggle.checked = applyDirections;
+  dom.renderEdgeDirectionToggle.checked = renderEdgeDirection;
   dom.sizeBaseValue.textContent = String(nodeSizeBase);
   dom.sizeCodeFactorValue.textContent = nodeSizeCodeFactor.toFixed(3);
   applyPaneTransparency(document.documentElement, paneTransparency, dom.transparencyValue);
   syncFocusedFieldUI();
-  setActiveTab(dom.sidebarTabs, dom.sidebarPanels, 'code-search');
+  setActiveTab(dom.sidebarTabs, dom.sidebarPanels, uiConfig.active_tab || 'code-search');
   setSidebarCollapsed(dom.appRoot, dom.collapseSidebarBtn, false);
   applyFloatingPaneSize();
   attachRightPaneResize();

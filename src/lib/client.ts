@@ -25,5 +25,5 @@ ${stripImports(readUiFile('layout.ts'))}
 ${stripImports(readUiFile('render.ts'))}
 ${stripImports(readUiFile('app.ts'))}
 
-createApp(window.__GRAPH__);
+createApp(window.__BOOTSTRAP__);
 `;

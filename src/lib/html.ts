@@ -1,7 +1,12 @@
 import type { GraphData } from './types.ts';
 import { clientCode } from './client.ts';
 
-export function renderHtml(graphData: GraphData): string {
+export function renderHtml(graphData: GraphData, config: any = {}): string {
+  const bootstrap = { graph: graphData, config };
+  const ui = config?.ui || {};
+  const paneWidth = Number(ui.pane_width ?? 420);
+  const paneHeight = Number(ui.pane_height ?? 900);
+  const paneTransparency = Number(ui.pane_transparency ?? 0.58);
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -12,8 +17,8 @@ export function renderHtml(graphData: GraphData): string {
     :root {
       color-scheme: dark;
       --bg: #000000;
-      --panel-alpha: 0.58;
-      --panel-alpha-2: 0.48;
+      --panel-alpha: ${paneTransparency};
+      --panel-alpha-2: ${Math.max(0.04, paneTransparency - 0.10)};
       --text: #ffffff;
       --muted: #c7cfdb;
       --border: rgba(255,255,255,0.12);
@@ -24,120 +29,37 @@ export function renderHtml(graphData: GraphData): string {
       --focus: #8ab4ff;
       --outside: #8f9bb3;
       --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-      --pane-width: 420px;
-      --pane-height: calc(100vh - 32px);
+      --pane-width: ${paneWidth}px;
+      --pane-height: min(${paneHeight}px, calc(100vh - 32px));
       --pane-top: 16px;
       --pane-right: 16px;
     }
     * { box-sizing: border-box; }
     html, body { height: 100%; }
-    body {
-      margin: 0;
-      background: radial-gradient(circle at top left, rgba(69,95,120,0.12), transparent 32%), #000;
-      color: var(--text);
-      font-family: Inter, ui-sans-serif, system-ui, sans-serif;
-      overflow: hidden;
-    }
-    .app {
-      position: relative;
-      width: 100vw;
-      height: 100vh;
-      overflow: hidden;
-    }
-    .stage {
-      position: absolute;
-      inset: 0;
-      min-width: 0;
-      min-height: 0;
-    }
-    #graph-container {
-      position: absolute;
-      inset: 0;
-    }
-    .right-pane-wrap {
-      position: absolute;
-      top: var(--pane-top);
-      right: var(--pane-right);
-      width: var(--pane-width);
-      height: var(--pane-height);
-      min-width: 56px;
-      min-height: 56px;
-      max-width: min(900px, calc(100vw - 32px));
-      max-height: calc(100vh - 32px);
-      z-index: 30;
-      pointer-events: auto;
-    }
-    .right-pane {
-      position: relative;
-      width: 100%;
-      height: 100%;
-      background: rgba(8, 10, 14, var(--panel-alpha));
-      border: 1px solid var(--border);
-      border-radius: 18px;
-      padding: 16px;
-      overflow: auto;
-      backdrop-filter: blur(18px);
-      -webkit-backdrop-filter: blur(18px);
-      box-shadow: 0 12px 30px rgba(0,0,0,0.25);
-    }
-    .right-pane-resize-corner {
-      position: absolute;
-      left: -2px;
-      bottom: -2px;
-      width: 22px;
-      height: 22px;
-      cursor: nesw-resize;
-      z-index: 50;
-      border-bottom-left-radius: 16px;
-      background:
-        linear-gradient(135deg, transparent 0 42%, rgba(255,255,255,0.08) 42% 50%, transparent 50% 62%, rgba(255,255,255,0.14) 62% 70%, transparent 70%),
-        radial-gradient(circle at bottom left, rgba(255,255,255,0.12), transparent 70%);
-    }
+    body { margin: 0; background: radial-gradient(circle at top left, rgba(69,95,120,0.12), transparent 32%), #000; color: var(--text); font-family: Inter, ui-sans-serif, system-ui, sans-serif; overflow: hidden; }
+    .app { position: relative; width: 100vw; height: 100vh; overflow: hidden; }
+    .stage { position: absolute; inset: 0; min-width: 0; min-height: 0; }
+    #graph-container { position: absolute; inset: 0; }
+    .right-pane-wrap { position: absolute; top: var(--pane-top); right: var(--pane-right); width: var(--pane-width); height: var(--pane-height); min-width: 56px; min-height: 56px; max-width: min(900px, calc(100vw - 32px)); max-height: calc(100vh - 32px); z-index: 30; pointer-events: auto; }
+    .right-pane { position: relative; width: 100%; height: 100%; background: rgba(8, 10, 14, var(--panel-alpha)); border: 1px solid var(--border); border-radius: 18px; padding: 16px; overflow: auto; backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px); box-shadow: 0 12px 30px rgba(0,0,0,0.25); }
+    .right-pane-resize-corner { position: absolute; left: -2px; bottom: -2px; width: 22px; height: 22px; cursor: nesw-resize; z-index: 50; border-bottom-left-radius: 16px; background: linear-gradient(135deg, transparent 0 42%, rgba(255,255,255,0.08) 42% 50%, transparent 50% 62%, rgba(255,255,255,0.14) 62% 70%, transparent 70%), radial-gradient(circle at bottom left, rgba(255,255,255,0.12), transparent 70%); }
     h1 { margin: 0 0 8px; font-size: 20px; }
     h2 { margin: 0 0 8px; font-size: 14px; color: var(--text); }
     h3 { margin: 14px 0 8px; font-size: 13px; color: var(--text); }
     p { color: var(--muted); line-height: 1.5; }
     .topbar { display: flex; gap: 8px; align-items: center; justify-content: space-between; margin-bottom: 12px; }
     .tab-row { display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
-    .tab-btn, .btn {
-      padding: 10px 12px;
-      border-radius: 10px;
-      border: 1px solid var(--border);
-      background: rgba(255,255,255,0.05);
-      color: var(--text);
-      cursor: pointer;
-    }
+    .tab-btn, .btn { padding: 10px 12px; border-radius: 10px; border: 1px solid var(--border); background: rgba(255,255,255,0.05); color: var(--text); cursor: pointer; }
     .tab-btn[data-active="true"], .btn[data-active="true"] { background: rgba(255,255,255,0.08); }
     .btn:hover, .tab-btn:hover { background: rgba(255,255,255,0.08); }
-    .section-card {
-      background: rgba(14, 17, 23, var(--panel-alpha-2));
-      border: 1px solid var(--border);
-      border-radius: 14px;
-      padding: 12px;
-      margin-top: 12px;
-    }
+    .section-card { background: rgba(14, 17, 23, var(--panel-alpha-2)); border: 1px solid var(--border); border-radius: 14px; padding: 12px; margin-top: 12px; }
     .chips { display: flex; flex-wrap: wrap; gap: 8px; margin: 14px 0; }
-    .chip {
-      padding: 5px 9px;
-      border-radius: 999px;
-      border: 1px solid var(--border);
-      background: rgba(255,255,255,0.04);
-      color: #fff;
-      font-size: 12px;
-    }
+    .chip { padding: 5px 9px; border-radius: 999px; border: 1px solid var(--border); background: rgba(255,255,255,0.04); color: #fff; font-size: 12px; }
     .mainchip { color: var(--main); }
     .reachchip { color: var(--reach); }
     .unreachchip { color: var(--unreach); }
     .outsidechip { color: var(--outside); }
-    .search, .text-input, .select-input, .range-input {
-      width: 100%;
-      padding: 10px 12px;
-      border-radius: 10px;
-      background: rgba(255,255,255,0.04);
-      border: 1px solid var(--border);
-      color: var(--text);
-      font-family: var(--mono);
-    }
+    .search, .text-input, .select-input, .range-input { width: 100%; padding: 10px 12px; border-radius: 10px; background: rgba(255,255,255,0.04); border: 1px solid var(--border); color: var(--text); font-family: var(--mono); }
     .text-input[data-focused="true"] { border-color: var(--focus); box-shadow: 0 0 0 1px var(--focus) inset; }
     .meta { margin-top: 12px; color: var(--muted); font-size: 13px; line-height: 1.45; }
     .mono { font-family: var(--mono); }
@@ -155,47 +77,14 @@ export function renderHtml(graphData: GraphData): string {
     .unreachswatch { background: var(--unreach); }
     .outside-swatch { background: var(--outside); }
     .pathswatch { background: var(--path); }
-    .status-box {
-      margin-top: 8px;
-      padding: 10px 12px;
-      border-radius: 10px;
-      border: 1px solid var(--border);
-      background: rgba(255,255,255,0.04);
-      color: var(--muted);
-      font-size: 12px;
-      line-height: 1.45;
-    }
-    .code-block {
-      margin-top: 8px;
-      background: rgba(0,0,0,0.42);
-      border: 1px solid rgba(255,255,255,0.08);
-      border-radius: 10px;
-      overflow: auto;
-      padding: 12px;
-      font-family: var(--mono);
-      font-size: 12px;
-      line-height: 1.55;
-      white-space: pre;
-    }
+    .status-box { margin-top: 8px; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--border); background: rgba(255,255,255,0.04); color: var(--muted); font-size: 12px; line-height: 1.45; }
+    .code-block { margin-top: 8px; background: rgba(0,0,0,0.42); border: 1px solid rgba(255,255,255,0.08); border-radius: 10px; overflow: auto; padding: 12px; font-family: var(--mono); font-size: 12px; line-height: 1.55; white-space: pre; }
     .code-block.with-lines { padding: 0; }
     .code-row { display: grid; grid-template-columns: auto 1fr; min-width: max-content; }
     .code-ln { user-select: none; padding: 0 12px; text-align: right; color: #707070; border-right: 1px solid rgba(255,255,255,0.08); background: rgba(255,255,255,0.02); }
     .code-src { display: block; padding: 0 12px; white-space: pre; }
     .path-list { display: grid; gap: 8px; margin-top: 12px; }
-    .path-item {
-      width: 100%;
-      text-align: left;
-      display: grid;
-      grid-template-columns: 32px 1fr;
-      gap: 10px;
-      align-items: start;
-      padding: 10px;
-      border-radius: 12px;
-      border: 1px solid var(--border);
-      background: rgba(255,255,255,0.04);
-      color: var(--text);
-      cursor: pointer;
-    }
+    .path-item { width: 100%; text-align: left; display: grid; grid-template-columns: 32px 1fr; gap: 10px; align-items: start; padding: 10px; border-radius: 12px; border: 1px solid var(--border); background: rgba(255,255,255,0.04); color: var(--text); cursor: pointer; }
     .path-item:hover { background: rgba(255,255,255,0.07); }
     .path-step { color: var(--path); font-family: var(--mono); }
     .path-main { display: grid; gap: 4px; }
@@ -203,31 +92,13 @@ export function renderHtml(graphData: GraphData): string {
     .path-file { font-size: 11px; color: var(--muted); }
     .path-empty { color: var(--muted); font-size: 13px; }
     [hidden] { display: none !important; }
-    .app[data-sidebar-collapsed="true"] .right-pane-wrap {
-      width: 56px !important;
-      height: 56px !important;
-    }
+    .app[data-sidebar-collapsed="true"] .right-pane-wrap { width: 56px !important; height: 56px !important; }
     .app[data-sidebar-collapsed="true"] .right-pane-resize-corner { display: none; }
-    .app[data-sidebar-collapsed="true"] .right-pane {
-      overflow: hidden;
-      padding: 12px;
-    }
-    .app[data-sidebar-collapsed="true"] .tab-row,
-    .app[data-sidebar-collapsed="true"] .sidebar-content,
-    .app[data-sidebar-collapsed="true"] h1,
-    .app[data-sidebar-collapsed="true"] p,
-    .app[data-sidebar-collapsed="true"] .chips { display: none; }
+    .app[data-sidebar-collapsed="true"] .right-pane { overflow: hidden; padding: 12px; }
+    .app[data-sidebar-collapsed="true"] .tab-row, .app[data-sidebar-collapsed="true"] .sidebar-content, .app[data-sidebar-collapsed="true"] h1, .app[data-sidebar-collapsed="true"] p, .app[data-sidebar-collapsed="true"] .chips { display: none; }
     .app[data-sidebar-collapsed="true"] .topbar { justify-content: center; margin-bottom: 0; }
     .app[data-sidebar-collapsed="true"] .topbar .row { width: 100%; justify-content: center; }
-    .arrow-btn {
-      width: 32px;
-      height: 32px;
-      padding: 0;
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 18px;
-    }
+    .arrow-btn { width: 32px; height: 32px; padding: 0; display: inline-flex; align-items: center; justify-content: center; font-size: 18px; }
     .token.comment, .token.prolog, .token.doctype, .token.cdata { color: #6a9955; }
     .token.punctuation { color: #d4d4d4; }
     .token.namespace { opacity: 0.7; }
@@ -287,10 +158,11 @@ export function renderHtml(graphData: GraphData): string {
             <div class="section-card">
               <h2>View settings</h2>
               <div class="checkbox-row"><input id="line-numbers-toggle" type="checkbox" /><label for="line-numbers-toggle">Show line numbers in source view</label></div>
+              <div class="checkbox-row"><input id="render-edge-direction-toggle" type="checkbox" /><label for="render-edge-direction-toggle">Render edge direction</label></div>
               <h3>Layout</h3>
               <select id="layout-mode" class="select-input"><option value="columns">columns</option><option value="forceatlas2">forceatlas2</option></select>
               <h3>Transparency</h3>
-              <div class="range-row"><input id="pane-transparency" class="range-input" type="range" min="0.10" max="0.95" step="0.05" value="0.58" /><span id="pane-transparency-value" class="range-value">0.58</span></div>
+              <div class="range-row"><input id="pane-transparency" class="range-input" type="range" min="0.10" max="0.95" step="0.05" value="${paneTransparency}" /><span id="pane-transparency-value" class="range-value">${paneTransparency.toFixed(2)}</span></div>
             </div>
             <div class="section-card">
               <h2>Node sizing</h2>
@@ -325,7 +197,7 @@ export function renderHtml(graphData: GraphData): string {
       <div id="right-pane-resize-corner" class="right-pane-resize-corner" aria-hidden="true"></div>
     </div>
   </div>
-  <script>window.__GRAPH__ = ${JSON.stringify(graphData)};</script>
+  <script>window.__BOOTSTRAP__ = ${JSON.stringify(bootstrap)};</script>
   <script type="module">
 ${clientCode}
   </script>

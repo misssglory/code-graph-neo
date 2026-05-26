@@ -13,6 +13,7 @@ export function createDom() {
     pathStatus: document.getElementById('path-status'),
     pathList: document.getElementById('path-list'),
     directedToggle: document.getElementById('directed-toggle'),
+    renderEdgeDirectionToggle: document.getElementById('render-edge-direction-toggle'),
     lineNumbersToggle: document.getElementById('line-numbers-toggle'),
     layoutModeSelect: document.getElementById('layout-mode'),
     sizeModeSelect: document.getElementById('node-size-mode'),
