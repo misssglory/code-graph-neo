@@ -28,9 +28,7 @@ type GraphData = {
 function extractJsonPayload(text: string): string {
   const start = text.indexOf('{');
   const end = text.lastIndexOf('}');
-  if (start === -1 || end === -1 || end <= start) {
-    throw new Error('Could not find JSON payload in input file');
-  }
+  if (start === -1 || end === -1 || end <= start) throw new Error('Could not find JSON payload in input file');
   return text.slice(start, end + 1);
 }
 
@@ -58,8 +56,8 @@ function parseStructuredGraph(text: string): GraphData {
 
   const nodeKeys = new Set(nodes.map((n) => n.key));
   const mainKey = nodes.find((n) => n.label === 'main')?.key ?? nodes.find((n) => /(^|::)main$/i.test(n.key))?.key ?? null;
-
   const outgoing = new Map<string, string[]>();
+
   for (const edge of edges) {
     if (edge.type !== 'calls') continue;
     if (!outgoing.has(edge.source)) outgoing.set(edge.source, []);
@@ -98,12 +96,12 @@ function html(graphData: GraphData): string {
   <style>
     :root {
       color-scheme: dark;
-      --bg: #0d1016;
-      --panel: #151925;
-      --panel-2: #0f131c;
-      --text: #e8edf6;
-      --muted: #94a1b6;
-      --border: #242c3c;
+      --bg: #000000;
+      --panel: #050505;
+      --panel-2: #0b0b0b;
+      --text: #ffffff;
+      --muted: #d0d0d0;
+      --border: #222222;
       --main: #63d7ff;
       --reach: #67db8b;
       --unreach: #ff7e7e;
@@ -128,13 +126,14 @@ function html(graphData: GraphData): string {
       right: 16px;
       top: 16px;
       width: min(430px, calc(100% - 32px));
-      background: rgba(21, 25, 37, 0.95);
+      background: rgba(18, 18, 18, 0.92);
       border: 1px solid var(--border);
       border-radius: 14px;
       padding: 12px 14px;
       color: var(--muted);
       line-height: 1.45;
       backdrop-filter: blur(10px);
+      box-shadow: 0 12px 30px rgba(0,0,0,0.35);
     }
     .inspect strong { color: var(--text); }
     .legend-row { display: flex; gap: 8px; align-items: center; margin-top: 10px; color: var(--muted); font-size: 13px; }
@@ -178,6 +177,10 @@ function html(graphData: GraphData): string {
     const selection = document.getElementById('selection');
     const search = document.getElementById('search');
     const graph = new Graph({ multi: true, allowSelfLoops: true });
+    const baseNodeColor = new Map();
+    const baseEdgeColor = new Map();
+    const neighbors = new Map();
+    let hoveredNode = null;
 
     const nodesByPath = new Map();
     for (const node of raw.nodes) {
@@ -192,6 +195,8 @@ function html(graphData: GraphData): string {
       list.forEach((node, row) => {
         const isMain = node.key === raw.mainKey;
         const isReachable = reachable.has(node.key);
+        const color = isMain ? '#63d7ff' : isReachable ? '#67db8b' : '#ff7e7e';
+        baseNodeColor.set(node.key, color);
         graph.addNode(node.key, {
           label: node.label,
           path,
@@ -200,7 +205,8 @@ function html(graphData: GraphData): string {
           x: col * 8,
           y: row * 1.8,
           size: isMain ? 18 : isReachable ? 12 : 10,
-          color: isMain ? '#63d7ff' : isReachable ? '#67db8b' : '#ff7e7e'
+          color,
+          forceLabel: isMain
         });
       });
     });
@@ -209,13 +215,21 @@ function html(graphData: GraphData): string {
     for (const edge of raw.edges) {
       if (edge.type !== 'calls') continue;
       if (!graph.hasNode(edge.source) || !graph.hasNode(edge.target)) continue;
-      const isReachableEdge = reachable.has(edge.source) && reachable.has(edge.target);
-      graph.addEdgeWithKey('e' + edgeId++, edge.source, edge.target, {
-        color: isReachableEdge ? '#58667f' : '#6b4040',
-        size: isReachableEdge ? 2 : 1,
+      const color = reachable.has(edge.source) && reachable.has(edge.target) ? '#58667f' : '#6b4040';
+      const key = 'e' + edgeId++;
+      baseEdgeColor.set(key, color);
+      graph.addEdgeWithKey(key, edge.source, edge.target, {
+        color,
+        size: reachable.has(edge.source) && reachable.has(edge.target) ? 2 : 1,
         type: 'line'
       });
     }
+
+    graph.forEachNode((node) => neighbors.set(node, new Set([node])));
+    graph.forEachEdge((edge, attrs, source, target) => {
+      neighbors.get(source).add(target);
+      neighbors.get(target).add(source);
+    });
 
     const sigma = new Sigma(graph, container, {
       minCameraRatio: 0.2,
@@ -223,25 +237,86 @@ function html(graphData: GraphData): string {
       labelDensity: 1,
       labelGridCellSize: 120,
       renderEdgeLabels: false,
-      allowInvalidContainer: false
+      allowInvalidContainer: false,
+      labelColor: { color: '#ffffff' },
+      defaultDrawNodeLabel: (context, data) => {
+        const size = data.size || 1;
+        if (size < 6 && !data.forceLabel) return;
+        const label = String(data.label || '');
+        const x = data.x + size + 6;
+        const y = data.y;
+        if (hoveredNode === data.key) {
+          const paddingX = 8;
+          const paddingY = 5;
+          context.font = '600 12px Inter, ui-sans-serif, system-ui, sans-serif';
+          const width = context.measureText(label).width;
+          const boxX = x - paddingX;
+          const boxY = y - 12;
+          const boxW = width + paddingX * 2;
+          const boxH = 20;
+          const r = 10;
+          context.fillStyle = '#ffffff';
+          context.beginPath();
+          context.moveTo(boxX + r, boxY);
+          context.lineTo(boxX + boxW - r, boxY);
+          context.quadraticCurveTo(boxX + boxW, boxY, boxX + boxW, boxY + r);
+          context.lineTo(boxX + boxW, boxY + boxH - r);
+          context.quadraticCurveTo(boxX + boxW, boxY + boxH, boxX + boxW - r, boxY + boxH);
+          context.lineTo(boxX + r, boxY + boxH);
+          context.quadraticCurveTo(boxX, boxY + boxH, boxX, boxY + boxH - r);
+          context.lineTo(boxX, boxY + r);
+          context.quadraticCurveTo(boxX, boxY, boxX + r, boxY);
+          context.closePath();
+          context.shadowColor = 'rgba(255,255,255,0.18)';
+          context.shadowBlur = 18;
+          context.fill();
+          context.shadowBlur = 0;
+          context.fillStyle = '#000000';
+          context.fillText(label, x, y + 4);
+          return;
+        }
+        context.font = '500 12px Inter, ui-sans-serif, system-ui, sans-serif';
+        context.fillStyle = '#ffffff';
+        context.fillText(label, x, y + 4);
+      },
+      defaultDrawNodeHover: (context, data) => {
+        const glow = (data.size || 8) + 8;
+        context.beginPath();
+        context.arc(data.x, data.y, glow, 0, Math.PI * 2);
+        context.fillStyle = 'rgba(255,255,255,0.08)';
+        context.fill();
+      }
     });
 
     sigma.getCamera().animatedReset({ duration: 0 });
 
-    function refreshHidden(query = '') {
+    function applyVisualState(query = '') {
       const q = query.trim().toLowerCase();
+      const hoverSet = hoveredNode ? neighbors.get(hoveredNode) || new Set([hoveredNode]) : null;
+
       graph.forEachNode((node, attrs) => {
         const matches = !q || attrs.label.toLowerCase().includes(q) || String(attrs.path || '').toLowerCase().includes(q);
-        graph.setNodeAttribute(node, 'hidden', !matches);
+        const hidden = !matches;
+        graph.setNodeAttribute(node, 'hidden', hidden);
+        const related = !hoverSet || hoverSet.has(node);
+        graph.setNodeAttribute(node, 'color', hidden ? 'rgba(0,0,0,0)' : related ? baseNodeColor.get(node) : 'rgba(255,255,255,0.14)');
+        graph.setNodeAttribute(node, 'size', hoveredNode === node ? (node === raw.mainKey ? 22 : 15) : (node === raw.mainKey ? 18 : reachable.has(node) ? 12 : 10));
+        graph.setNodeAttribute(node, 'forceLabel', hoveredNode === node || node === raw.mainKey);
       });
+
       graph.forEachEdge((edge, attrs, source, target) => {
         const hidden = graph.getNodeAttribute(source, 'hidden') || graph.getNodeAttribute(target, 'hidden');
         graph.setEdgeAttribute(edge, 'hidden', hidden);
+        if (hidden) return;
+        const active = !hoverSet || (hoverSet.has(source) && hoverSet.has(target));
+        graph.setEdgeAttribute(edge, 'color', active ? baseEdgeColor.get(edge) : 'rgba(255,255,255,0.05)');
+        graph.setEdgeAttribute(edge, 'size', hoveredNode && active ? 3 : reachable.has(source) && reachable.has(target) ? 2 : 1);
       });
+
       sigma.refresh();
     }
 
-    search.addEventListener('input', () => refreshHidden(search.value));
+    search.addEventListener('input', () => applyVisualState(search.value));
 
     sigma.on('clickNode', ({ node }) => {
       const attrs = graph.getNodeAttributes(node);
@@ -259,7 +334,17 @@ function html(graphData: GraphData): string {
         '<strong>Called by</strong>: ' + (incoming.join(', ') || 'none');
     });
 
-    refreshHidden();
+    sigma.on('enterNode', ({ node }) => {
+      hoveredNode = node;
+      applyVisualState(search.value);
+    });
+
+    sigma.on('leaveNode', () => {
+      hoveredNode = null;
+      applyVisualState(search.value);
+    });
+
+    applyVisualState();
   </script>
 </body>
 </html>`;
