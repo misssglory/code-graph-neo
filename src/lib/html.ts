@@ -12,8 +12,10 @@ export function renderHtml(graphData: GraphData): string {
     :root {
       color-scheme: dark;
       --bg: #000000;
-      --panel: rgba(8, 10, 14, 0.58);
-      --panel-2: rgba(14, 17, 23, 0.48);
+      --panel-alpha: 0.58;
+      --panel-alpha-2: 0.48;
+      --panel: rgba(8, 10, 14, var(--panel-alpha));
+      --panel-2: rgba(14, 17, 23, var(--panel-alpha-2));
       --text: #ffffff;
       --muted: #c7cfdb;
       --border: rgba(255,255,255,0.12);
@@ -27,14 +29,24 @@ export function renderHtml(graphData: GraphData): string {
     }
     * { box-sizing: border-box; }
     body { margin: 0; background: radial-gradient(circle at top left, rgba(69,95,120,0.12), transparent 32%), #000; color: var(--text); font-family: Inter, ui-sans-serif, system-ui, sans-serif; }
-    .app { display: grid; grid-template-columns: 420px 1fr 340px; min-height: 100vh; }
-    .sidebar, .pathbar { background: var(--panel); border-right: 1px solid var(--border); padding: 16px; overflow: auto; backdrop-filter: blur(16px); }
+    .app { display: grid; grid-template-columns: 440px 1fr 340px; min-height: 100vh; }
+    .app[data-sidebar-collapsed="true"] { grid-template-columns: 68px 1fr 340px; }
+    .app[data-path-pane-visible="false"] { grid-template-columns: 440px 1fr; }
+    .app[data-sidebar-collapsed="true"][data-path-pane-visible="false"] { grid-template-columns: 68px 1fr; }
+    .sidebar, .pathbar { background: var(--panel); border-right: 1px solid var(--border); padding: 16px; overflow: auto; backdrop-filter: blur(18px); }
     .pathbar { border-right: 0; border-left: 1px solid var(--border); }
     .stage { position: relative; min-height: 100vh; }
     h1 { margin: 0 0 8px; font-size: 20px; }
-    h2 { margin: 18px 0 8px; font-size: 14px; color: var(--text); }
-    h3 { margin: 16px 0 8px; font-size: 13px; color: var(--text); }
+    h2 { margin: 0 0 8px; font-size: 14px; color: var(--text); }
+    h3 { margin: 14px 0 8px; font-size: 13px; color: var(--text); }
     p { color: var(--muted); line-height: 1.5; }
+    .topbar { display: flex; gap: 8px; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+    .tab-row { display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
+    .tab-btn, .btn {
+      padding: 10px 12px; border-radius: 10px; border: 1px solid var(--border); background: rgba(255,255,255,0.05); color: var(--text); cursor: pointer;
+    }
+    .tab-btn[data-active="true"], .btn[data-active="true"] { background: rgba(255,255,255,0.14); }
+    .btn:hover, .tab-btn:hover { background: rgba(255,255,255,0.08); }
     .section-card { background: var(--panel-2); border: 1px solid var(--border); border-radius: 14px; padding: 12px; margin-top: 12px; }
     .chips { display: flex; flex-wrap: wrap; gap: 8px; margin: 14px 0; }
     .chip { padding: 5px 9px; border-radius: 999px; border: 1px solid var(--border); background: rgba(255,255,255,0.04); font-size: 12px; }
@@ -50,27 +62,12 @@ export function renderHtml(graphData: GraphData): string {
     .mono { font-family: var(--mono); }
     .path-grid { display: grid; gap: 8px; margin-top: 8px; }
     .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-    .btn { padding: 10px 12px; border-radius: 10px; border: 1px solid var(--border); background: rgba(255,255,255,0.05); color: var(--text); cursor: pointer; }
-    .btn:hover { background: rgba(255,255,255,0.08); }
     .checkbox-row { display: flex; gap: 8px; align-items: center; color: var(--muted); font-size: 13px; margin-top: 8px; }
     .range-row { display: grid; grid-template-columns: 1fr auto; gap: 10px; align-items: center; margin-top: 8px; }
     .range-value { color: var(--muted); font-family: var(--mono); font-size: 12px; min-width: 42px; text-align: right; }
     #graph-container { position: absolute; inset: 0; }
     .inspect {
-      position: absolute;
-      right: 16px;
-      top: 16px;
-      width: min(720px, calc(100% - 32px));
-      background: rgba(12, 14, 18, 0.58);
-      border: 1px solid var(--border);
-      border-radius: 14px;
-      padding: 12px 14px;
-      color: var(--muted);
-      line-height: 1.45;
-      backdrop-filter: blur(18px);
-      box-shadow: 0 12px 30px rgba(0,0,0,0.25);
-      max-height: calc(100vh - 32px);
-      overflow: auto;
+      width: 100%; background: transparent; border: 0; padding: 0; color: var(--muted); line-height: 1.45; box-shadow: none; max-height: none; overflow: visible;
     }
     .inspect strong { color: var(--text); }
     .legend-row { display: flex; gap: 8px; align-items: center; margin-top: 10px; color: var(--muted); font-size: 13px; }
@@ -101,6 +98,16 @@ export function renderHtml(graphData: GraphData): string {
     .path-label { font-size: 13px; }
     .path-file { font-size: 11px; color: var(--muted); }
     .path-empty { color: var(--muted); font-size: 13px; }
+    [hidden] { display: none !important; }
+    .collapsed-only { display: none; }
+    .app[data-sidebar-collapsed="true"] .tab-row,
+    .app[data-sidebar-collapsed="true"] .sidebar-content,
+    .app[data-sidebar-collapsed="true"] h1,
+    .app[data-sidebar-collapsed="true"] p,
+    .app[data-sidebar-collapsed="true"] .chips,
+    .app[data-sidebar-collapsed="true"] .legend-block,
+    .app[data-sidebar-collapsed="true"] #selection { display: none; }
+    .app[data-sidebar-collapsed="true"] .collapsed-only { display: grid; gap: 8px; }
     .token.comment, .token.prolog, .token.doctype, .token.cdata { color: #6a9955; }
     .token.punctuation { color: #d4d4d4; }
     .token.namespace { opacity: 0.7; }
@@ -113,10 +120,16 @@ export function renderHtml(graphData: GraphData): string {
   </style>
 </head>
 <body>
-  <div class="app">
-    <aside class="sidebar">
-      <h1>Code graph</h1>
-      <p>This viewer renders the exported graph, computes used and dead code inside the selected main component, and lets you inspect and route paths through the graph.</p>
+  <div id="app-root" class="app" data-sidebar-collapsed="false" data-path-pane-visible="true">
+    <aside id="left-pane" class="sidebar">
+      <div class="topbar">
+        <h1>Code graph</h1>
+        <div class="row">
+          <button id="toggle-path-pane" class="btn">Hide path pane</button>
+          <button id="collapse-sidebar" class="btn">Collapse panel</button>
+        </div>
+      </div>
+      <p>This viewer combines code inspection, settings, and path exploration in one collapsible left panel.</p>
       <div class="chips">
         <span class="chip mainchip mono">main: ${graphData.mainKey ?? 'not found'}</span>
         <span class="chip reachchip">used in main component</span>
@@ -125,75 +138,111 @@ export function renderHtml(graphData: GraphData): string {
         <span class="chip">nodes: ${graphData.nodes.length}</span>
         <span class="chip">files: ${graphData.files.length}</span>
       </div>
-      <input id="search" class="search" placeholder="Search labels, files, signatures, or code" />
-
-      <div class="section-card">
-        <h2>Path finder</h2>
-        <div class="path-grid">
-          <input id="path-from" class="text-input" data-focused="true" placeholder="Source node key or exact label" />
-          <input id="path-to" class="text-input" data-focused="false" placeholder="Sink node key or exact label" />
-          <div class="checkbox-row">
-            <input id="directed-toggle" type="checkbox" checked />
-            <label for="directed-toggle">Apply edge directions</label>
+      <div class="tab-row">
+        <button class="tab-btn" data-tab-button="code-search" data-active="true">code search</button>
+        <button class="tab-btn" data-tab-button="settings" data-active="false">settings</button>
+        <button class="tab-btn" data-tab-button="find-path" data-active="false">find path</button>
+      </div>
+      <div class="collapsed-only">
+        <button class="btn" data-tab-button="code-search">code</button>
+        <button class="btn" data-tab-button="settings">settings</button>
+        <button class="btn" data-tab-button="find-path">path</button>
+      </div>
+      <div class="sidebar-content">
+        <section data-tab-panel="code-search">
+          <div class="section-card">
+            <h2>Code search</h2>
+            <input id="search" class="search" placeholder="Search labels, files, signatures, or code" />
+            <div id="selection" class="meta">Focus source or sink, then click a node to assign it. The focused field gets the clicked node.</div>
           </div>
-          <div class="row">
-            <button id="path-go" class="btn">Find path</button>
-            <button id="path-reverse" class="btn">Reverse</button>
-            <button id="path-clear" class="btn">Clear</button>
+          <div class="section-card">
+            <h2>Node info</h2>
+            <div id="inspect" class="inspect">Ready.</div>
           </div>
-          <div id="path-status" class="status-box">No path selected.</div>
-        </div>
-      </div>
+        </section>
 
-      <div class="section-card">
-        <h2>Main component</h2>
-        <select id="main-source-select" class="select-input"></select>
-        <div class="row" style="margin-top:8px;">
-          <button id="recompute-main" class="btn">Use as main source</button>
-        </div>
-      </div>
+        <section data-tab-panel="settings" hidden>
+          <div class="section-card">
+            <h2>Main component</h2>
+            <select id="main-source-select" class="select-input"></select>
+            <div class="row" style="margin-top:8px;">
+              <button id="recompute-main" class="btn">Use selected source</button>
+              <button id="main-component-focus" class="btn" data-active="false">Main component target: OFF</button>
+            </div>
+            <div class="meta">When main component target is on, clicking a node in the graph sets that node as the root for live/dead component analysis.</div>
+          </div>
 
-      <div class="section-card">
-        <h2>View settings</h2>
-        <div class="checkbox-row">
-          <input id="line-numbers-toggle" type="checkbox" />
-          <label for="line-numbers-toggle">Show line numbers in source view</label>
-        </div>
-        <h3>Layout</h3>
-        <select id="layout-mode" class="select-input">
-          <option value="columns">columns</option>
-          <option value="forceatlas2">forceatlas2</option>
-        </select>
-      </div>
+          <div class="section-card">
+            <h2>View settings</h2>
+            <div class="checkbox-row">
+              <input id="line-numbers-toggle" type="checkbox" />
+              <label for="line-numbers-toggle">Show line numbers in source view</label>
+            </div>
+            <h3>Layout</h3>
+            <select id="layout-mode" class="select-input">
+              <option value="columns">columns</option>
+              <option value="forceatlas2">forceatlas2</option>
+            </select>
+            <h3>Transparency</h3>
+            <div class="range-row">
+              <input id="pane-transparency" class="range-input" type="range" min="0.10" max="0.95" step="0.05" value="0.58" />
+              <span id="pane-transparency-value" class="range-value">0.58</span>
+            </div>
+          </div>
 
-      <div class="section-card">
-        <h2>Node sizing</h2>
-        <select id="node-size-mode" class="select-input">
-          <option value="status">status based</option>
-          <option value="code">scale by code size</option>
-        </select>
-        <div class="range-row">
-          <input id="node-size-base" class="range-input" type="range" min="6" max="24" step="1" value="11" />
-          <span id="node-size-base-value" class="range-value">11</span>
-        </div>
-        <div class="range-row">
-          <input id="node-size-code-factor" class="range-input" type="range" min="0.005" max="0.100" step="0.005" value="0.015" />
-          <span id="node-size-code-factor-value" class="range-value">0.015</span>
-        </div>
-      </div>
+          <div class="section-card">
+            <h2>Node sizing</h2>
+            <select id="node-size-mode" class="select-input">
+              <option value="status">status based</option>
+              <option value="code">scale by code size</option>
+            </select>
+            <div class="range-row">
+              <input id="node-size-base" class="range-input" type="range" min="6" max="24" step="1" value="11" />
+              <span id="node-size-base-value" class="range-value">11</span>
+            </div>
+            <div class="range-row">
+              <input id="node-size-code-factor" class="range-input" type="range" min="0.005" max="0.100" step="0.005" value="0.015" />
+              <span id="node-size-code-factor-value" class="range-value">0.015</span>
+            </div>
+          </div>
 
-      <div class="legend-row"><span class="swatch mainswatch"></span> entrypoint</div>
-      <div class="legend-row"><span class="swatch reachswatch"></span> used in main component</div>
-      <div class="legend-row"><span class="swatch unreachswatch"></span> dead in main component</div>
-      <div class="legend-row"><span class="swatch outside-swatch"></span> outside main component</div>
-      <div class="legend-row"><span class="swatch pathswatch"></span> current path</div>
-      <div id="selection" class="meta">Focus source or sink, then click a node to assign it. The focused field gets the clicked node.</div>
+          <div class="section-card legend-block">
+            <h2>Legend</h2>
+            <div class="legend-row"><span class="swatch mainswatch"></span> entrypoint</div>
+            <div class="legend-row"><span class="swatch reachswatch"></span> used in main component</div>
+            <div class="legend-row"><span class="swatch unreachswatch"></span> dead in main component</div>
+            <div class="legend-row"><span class="swatch outside-swatch"></span> outside main component</div>
+            <div class="legend-row"><span class="swatch pathswatch"></span> current path</div>
+          </div>
+        </section>
+
+        <section data-tab-panel="find-path" hidden>
+          <div class="section-card">
+            <h2>Find path</h2>
+            <div class="path-grid">
+              <input id="path-from" class="text-input" data-focused="true" placeholder="Source node key or exact label" />
+              <input id="path-to" class="text-input" data-focused="false" placeholder="Sink node key or exact label" />
+              <div class="checkbox-row">
+                <input id="directed-toggle" type="checkbox" checked />
+                <label for="directed-toggle">Apply edge directions</label>
+              </div>
+              <div class="row">
+                <button id="path-go" class="btn">Find path</button>
+                <button id="path-reverse" class="btn">Reverse</button>
+                <button id="path-clear" class="btn">Clear</button>
+              </div>
+              <div id="path-status" class="status-box">No path selected.</div>
+            </div>
+          </div>
+        </section>
+      </div>
     </aside>
+
     <main class="stage">
       <div id="graph-container"></div>
-      <div id="inspect" class="inspect">Ready.</div>
     </main>
-    <aside class="pathbar">
+
+    <aside id="path-pane" class="pathbar">
       <h2>Found path</h2>
       <div id="path-list" class="path-list"></div>
     </aside>
