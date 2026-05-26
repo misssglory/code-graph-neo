@@ -164,7 +164,7 @@ export function createApp(bootstrap) {
       const node = state.rawNodeByKey.get(nodeId);
       const fileColor = fileColorByPath.get(node?.path || '') || '#8f9bb3';
       const selected = idx === pathCursorIndex ? 'true' : 'false';
-      return '<button class="path-item" data-selected="' + selected + '" data-node-id="' + escapeHtml(nodeId) + '" data-index="' + idx + '"><span class="path-step">' + idx + '</span><span class="path-main"><span class="path-label">' + escapeHtml(node?.label || nodeId) + '</span><span class="path-file mono"><span class="selection-accent"><span class="selection-dot" style="background:' + escapeHtml(fileColor) + ';"></span><span style="color:' + escapeHtml(fileColor) + '">' + escapeHtml(node?.path || 'unknown') + '</span></span></span></span></button>';
+      return '<button class="path-item" role="option" aria-selected="' + selected + '" data-selected="' + selected + '" data-node-id="' + escapeHtml(nodeId) + '" data-index="' + idx + '"><span class="path-step">' + idx + '</span><span class="path-main"><span class="path-label">' + escapeHtml(node?.label || nodeId) + '</span><span class="path-file mono"><span class="selection-accent"><span class="selection-dot" style="background:' + escapeHtml(fileColor) + ';"></span><span style="color:' + escapeHtml(fileColor) + '">' + escapeHtml(node?.path || 'unknown') + '</span></span></span></span></button>';
     }).join('');
     dom.pathList.querySelectorAll('[data-node-id]').forEach((el) => {
       el.addEventListener('click', () => activatePathRow(Number(el.getAttribute('data-index') || '0')));
@@ -216,7 +216,7 @@ export function createApp(bootstrap) {
     renderPathList();
   }
 
-  function updatePathStatus(message) { dom.pathStatus.textContent = message; }
+  function updatePathStatus(message) { dom.pathStatus.textContent = message + '  Keyboard: ↑/↓ or Ctrl-J/Ctrl-K, Enter selects.'; }
   function syncFocusedFieldUI() {
     dom.pathFromInput.dataset.focused = focusedPathField === 'from' ? 'true' : 'false';
     dom.pathToInput.dataset.focused = focusedPathField === 'to' ? 'true' : 'false';
@@ -530,6 +530,8 @@ export function createApp(bootstrap) {
   dom.pathToInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') runPathSearch(); });
   dom.pathList.addEventListener('keydown', handlePathListKeydown);
   dom.pathList.tabIndex = 0;
+  dom.pathList.setAttribute('role', 'listbox');
+  dom.pathList.setAttribute('aria-label', 'Path selection list');
   sigma.on('clickNode', ({ node }) => {
     selectedNode = node;
     if (mainComponentFocusMode) setMainFromNode(node);

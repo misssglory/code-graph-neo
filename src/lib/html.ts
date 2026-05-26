@@ -60,6 +60,7 @@ export function renderHtml(graphData: GraphData, config: any = {}): string {
     .unreachchip { color: var(--unreach); }
     .outsidechip { color: var(--outside); }
     .search, .text-input, .select-input, .range-input { width: 100%; padding: 10px 12px; border-radius: 10px; background: rgba(255,255,255,0.04); border: 1px solid var(--border); color: var(--text); font-family: var(--mono); }
+    .select-input option { background: #050608; color: #ffffff; }
     .text-input[data-focused="true"] { border-color: var(--focus); box-shadow: 0 0 0 1px var(--focus) inset; }
     .meta { margin-top: 12px; color: var(--muted); font-size: 13px; line-height: 1.45; }
     .mono { font-family: var(--mono); }
@@ -123,7 +124,7 @@ export function renderHtml(graphData: GraphData, config: any = {}): string {
           <h1>Code graph</h1>
           <div class="row"><button id="collapse-sidebar" class="btn arrow-btn" aria-label="Collapse panel" title="Collapse panel">→</button></div>
         </div>
-        <p>This viewer combines code inspection, settings, and path exploration in one transparent floating panel.</p>
+        <p>This viewer combines code inspection, settings, and path exploration in one transparent floating panel. Use the path list like a mini fzf: arrows or Ctrl-J/Ctrl-K move, Enter locks selection.</p>
         <div class="chips">
           <span class="chip mainchip mono">main: ${graphData.mainKey ?? 'not found'}</span>
           <span class="chip reachchip">used in main component</span>
@@ -142,7 +143,7 @@ export function renderHtml(graphData: GraphData, config: any = {}): string {
             <div class="section-card">
               <h2>Code search</h2>
               <input id="search" class="search" placeholder="Search labels, files, signatures, or code" />
-              <div id="selection" class="meta">Focus source or sink, then click a node to assign it. The focused field gets the clicked node.</div>
+              <div id="selection" class="meta">Focus source or sink, then click a node to assign it. The focused field gets the clicked node. After a path appears, focus the list and use arrows or Ctrl-J/Ctrl-K, then Enter.</div>
             </div>
             <div class="section-card">
               <h2>Node info</h2>
