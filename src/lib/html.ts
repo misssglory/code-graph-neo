@@ -22,10 +22,12 @@ export function renderHtml(graphData: GraphData): string {
       --unreach: #ff7e7e;
       --path: #ffd54f;
       --focus: #8ab4ff;
+      --outside: #8f9bb3;
+      --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
     }
     * { box-sizing: border-box; }
     body { margin: 0; background: var(--bg); color: var(--text); font-family: Inter, ui-sans-serif, system-ui, sans-serif; }
-    .app { display: grid; grid-template-columns: 390px 1fr; min-height: 100vh; }
+    .app { display: grid; grid-template-columns: 400px 1fr; min-height: 100vh; }
     .sidebar { background: var(--panel); border-right: 1px solid var(--border); padding: 16px; overflow: auto; }
     .stage { position: relative; min-height: 100vh; }
     h1 { margin: 0 0 8px; font-size: 20px; }
@@ -36,14 +38,16 @@ export function renderHtml(graphData: GraphData): string {
     .mainchip { color: var(--main); }
     .reachchip { color: var(--reach); }
     .unreachchip { color: var(--unreach); }
+    .outsidechip { color: var(--outside); }
     .search, .text-input {
-      width: 100%; padding: 10px 12px; border-radius: 10px; background: var(--panel-2); border: 1px solid var(--border); color: var(--text);
+      width: 100%; padding: 10px 12px; border-radius: 10px; background: var(--panel-2); border: 1px solid var(--border); color: var(--text); font-family: var(--mono);
     }
     .text-input[data-focused="true"] {
       border-color: var(--focus);
       box-shadow: 0 0 0 1px var(--focus) inset;
     }
     .meta { margin-top: 12px; color: var(--muted); font-size: 13px; line-height: 1.45; }
+    .mono { font-family: var(--mono); }
     .path-grid { display: grid; gap: 8px; margin-top: 8px; }
     .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
     .btn {
@@ -55,8 +59,8 @@ export function renderHtml(graphData: GraphData): string {
       position: absolute;
       right: 16px;
       top: 16px;
-      width: min(520px, calc(100% - 32px));
-      background: rgba(18, 18, 18, 0.94);
+      width: min(720px, calc(100% - 32px));
+      background: rgba(18, 18, 18, 0.96);
       border: 1px solid var(--border);
       border-radius: 14px;
       padding: 12px 14px;
@@ -73,21 +77,64 @@ export function renderHtml(graphData: GraphData): string {
     .mainswatch { background: var(--main); }
     .reachswatch { background: var(--reach); }
     .unreachswatch { background: var(--unreach); }
+    .outside-swatch { background: var(--outside); }
     .pathswatch { background: var(--path); }
     .links { margin-top: 14px; display: flex; gap: 10px; flex-wrap: wrap; }
     .links a { color: #ffffff; text-decoration: none; border-bottom: 1px solid #444; }
     .status-box { margin-top: 8px; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--border); background: var(--panel-2); color: var(--muted); font-size: 12px; line-height: 1.45; }
+    .code-block {
+      margin-top: 8px;
+      background: #050505;
+      border: 1px solid #1c1c1c;
+      border-radius: 10px;
+      overflow: auto;
+      padding: 12px;
+      font-family: var(--mono);
+      font-size: 12px;
+      line-height: 1.55;
+      white-space: pre;
+    }
+    .code-block code { font-family: var(--mono); }
+    .code-block.with-lines { padding: 0; }
+    .code-row {
+      display: grid;
+      grid-template-columns: auto 1fr;
+      min-width: max-content;
+    }
+    .code-ln {
+      user-select: none;
+      padding: 0 12px;
+      text-align: right;
+      color: #707070;
+      border-right: 1px solid #1c1c1c;
+      background: #080808;
+    }
+    .code-src {
+      display: block;
+      padding: 0 12px;
+      white-space: pre;
+    }
+    .token.comment, .token.prolog, .token.doctype, .token.cdata { color: #6a9955; }
+    .token.punctuation { color: #d4d4d4; }
+    .token.namespace { opacity: 0.7; }
+    .token.property, .token.tag, .token.boolean, .token.number, .token.constant, .token.symbol, .token.deleted { color: #b5cea8; }
+    .token.selector, .token.attr-name, .token.string, .token.char, .token.builtin, .token.inserted { color: #ce9178; }
+    .token.operator, .token.entity, .token.url, .language-css .token.string, .style .token.string { color: #d4d4d4; }
+    .token.atrule, .token.attr-value, .token.keyword { color: #569cd6; }
+    .token.function, .token.class-name { color: #dcdcaa; }
+    .token.regex, .token.important, .token.variable { color: #c586c0; }
   </style>
 </head>
 <body>
   <div class="app">
     <aside class="sidebar">
       <h1>Code graph</h1>
-      <p>This viewer parses the JSON graph dump, renders it with Sigma.js, can search labels, filenames, signatures, and code, and can find directed or undirected paths between nodes.</p>
+      <p>This viewer renders the exported graph, identifies used and dead items inside the undirected component containing <span class="mono">main</span>, and supports code-aware inspection.</p>
       <div class="chips">
-        <span class="chip mainchip">main: ${graphData.mainKey ?? 'not found'}</span>
-        <span class="chip reachchip">reachable: ${graphData.reachable.length}</span>
-        <span class="chip unreachchip">unreachable: ${graphData.unreachable.length}</span>
+        <span class="chip mainchip mono">main: ${graphData.mainKey ?? 'not found'}</span>
+        <span class="chip reachchip">used in main component</span>
+        <span class="chip unreachchip">dead in main component</span>
+        <span class="chip outsidechip">outside main component</span>
         <span class="chip">nodes: ${graphData.nodes.length}</span>
         <span class="chip">files: ${graphData.files.length}</span>
       </div>
@@ -100,6 +147,10 @@ export function renderHtml(graphData: GraphData): string {
           <input id="directed-toggle" type="checkbox" checked />
           <label for="directed-toggle">Apply edge directions</label>
         </div>
+        <div class="checkbox-row">
+          <input id="line-numbers-toggle" type="checkbox" />
+          <label for="line-numbers-toggle">Show line numbers in source view</label>
+        </div>
         <div class="row">
           <button id="path-go" class="btn">Find path</button>
           <button id="path-reverse" class="btn">Reverse</button>
@@ -108,8 +159,9 @@ export function renderHtml(graphData: GraphData): string {
         <div id="path-status" class="status-box">No path selected.</div>
       </div>
       <div class="legend-row"><span class="swatch mainswatch"></span> entrypoint</div>
-      <div class="legend-row"><span class="swatch reachswatch"></span> reachable from main</div>
-      <div class="legend-row"><span class="swatch unreachswatch"></span> unreachable from main</div>
+      <div class="legend-row"><span class="swatch reachswatch"></span> used in main component</div>
+      <div class="legend-row"><span class="swatch unreachswatch"></span> dead in main component</div>
+      <div class="legend-row"><span class="swatch outside-swatch"></span> outside main component</div>
       <div class="legend-row"><span class="swatch pathswatch"></span> current path</div>
       <div class="meta">Layout modes:</div>
       <div class="links">
