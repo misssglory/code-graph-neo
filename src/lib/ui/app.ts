@@ -267,6 +267,8 @@ export function createApp(raw) {
 
   function applyRightPaneWidth() {
     document.documentElement.style.setProperty('--right-pane-width', rightPaneWidth + 'px');
+    if (dom.rightPaneWrap) dom.rightPaneWrap.style.width = rightPaneWidth + 'px';
+    if (dom.rightPane) dom.rightPane.style.width = '100%';
   }
 
   function attachRightPaneResize() {
@@ -276,7 +278,7 @@ export function createApp(raw) {
       const startX = event.clientX;
       const startWidth = rightPaneWidth;
       const move = (ev) => {
-        rightPaneWidth = Math.max(280, Math.min(900, startWidth - (ev.clientX - startX)));
+        rightPaneWidth = Math.max(280, Math.min(window.innerWidth - 120, startWidth - (ev.clientX - startX)));
         applyRightPaneWidth();
       };
       const up = () => {
@@ -375,7 +377,11 @@ export function createApp(raw) {
   dom.sizeBaseInput.addEventListener('input', () => { nodeSizeBase = Number(dom.sizeBaseInput.value); dom.sizeBaseValue.textContent = String(nodeSizeBase); refreshBaseNodeStyles(); applyVisualState(dom.search.value); });
   dom.sizeCodeFactorInput.addEventListener('input', () => { nodeSizeCodeFactor = Number(dom.sizeCodeFactorInput.value); dom.sizeCodeFactorValue.textContent = nodeSizeCodeFactor.toFixed(3); refreshBaseNodeStyles(); applyVisualState(dom.search.value); });
   dom.transparencyInput.addEventListener('input', () => { paneTransparency = Number(dom.transparencyInput.value); applyPaneTransparency(document.documentElement, paneTransparency, dom.transparencyValue); });
-  dom.collapseSidebarBtn.addEventListener('click', () => setSidebarCollapsed(dom.appRoot, dom.collapseSidebarBtn, dom.appRoot.dataset.sidebarCollapsed !== 'true'));
+  dom.collapseSidebarBtn.addEventListener('click', () => {
+    const collapsed = dom.appRoot.dataset.sidebarCollapsed !== 'true';
+    setSidebarCollapsed(dom.appRoot, dom.collapseSidebarBtn, collapsed);
+    if (!collapsed) applyRightPaneWidth();
+  });
   dom.mainComponentFocusBtn.addEventListener('click', () => {
     mainComponentFocusMode = !mainComponentFocusMode;
     dom.mainComponentFocusBtn.dataset.active = mainComponentFocusMode ? 'true' : 'false';
