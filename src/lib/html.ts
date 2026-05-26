@@ -86,10 +86,14 @@ export function renderHtml(graphData: GraphData, config: any = {}): string {
     .path-list { display: grid; gap: 8px; margin-top: 12px; }
     .path-item { width: 100%; text-align: left; display: grid; grid-template-columns: 32px 1fr; gap: 10px; align-items: start; padding: 10px; border-radius: 12px; border: 1px solid var(--border); background: rgba(255,255,255,0.04); color: var(--text); cursor: pointer; }
     .path-item:hover { background: rgba(255,255,255,0.07); }
+    .path-item[data-selected="true"] { background: rgba(0,0,0,0.92); border-color: rgba(255,255,255,0.22); box-shadow: inset 0 0 0 1px rgba(255,255,255,0.06), 0 8px 24px rgba(0,0,0,0.28); }
+    .path-item:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
     .path-step { color: var(--path); font-family: var(--mono); }
     .path-main { display: grid; gap: 4px; }
-    .path-label { font-size: 13px; }
+    .path-label { font-size: 13px; color: #ffffff; }
     .path-file { font-size: 11px; color: var(--muted); }
+    .selection-accent { display: inline-flex; align-items: center; gap: 8px; }
+    .selection-dot { width: 8px; height: 8px; border-radius: 999px; flex: 0 0 auto; }
     .path-empty { color: var(--muted); font-size: 13px; }
     [hidden] { display: none !important; }
     .app[data-sidebar-collapsed="true"] .right-pane-wrap { width: 56px !important; height: 56px !important; }
