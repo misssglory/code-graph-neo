@@ -16,26 +16,22 @@ function hashString(input) {
   }
   return h >>> 0;
 }
-
 function makeFileColorMap(paths, palette) {
   const unique = [...new Set(paths.filter(Boolean))].sort();
   const map = new Map();
   unique.forEach((path) => map.set(path, palette[hashString(path) % palette.length]));
   return map;
 }
-
 function hexToRgb(hex) {
   const value = hex.replace('#', '');
   const normalized = value.length === 3 ? value.split('').map((c) => c + c).join('') : value;
   const n = parseInt(normalized, 16);
   return { r: (n >> 16) & 255, g: (n >> 8) & 255, b: n & 255 };
 }
-
 function rgba(hex, alpha) {
   const { r, g, b } = hexToRgb(hex);
   return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 }
-
 function drawArrowHead(context, x1, y1, x2, y2, color, size) {
   const angle = Math.atan2(y2 - y1, x2 - x1);
   const len = Math.max(7, size * 3.2);
@@ -74,13 +70,13 @@ export function createApp(bootstrap) {
   let currentPath = [];
   let pathNodeSet = new Set();
   let pathEdgeSet = new Set();
+  let pathCursorIndex = -1;
   let layoutMode = new URL(window.location.href).searchParams.get('layout') || graphConfig.layout || 'columns';
   let mainComponentFocusMode = false;
   let rightPaneWidth = Number(uiConfig.pane_width ?? 420);
   let rightPaneHeight = Math.max(360, Number(uiConfig.pane_height ?? (window.innerHeight - 32)));
 
   function refreshStateForCurrentMain() { recomputeMainComponentState(state); }
-
   function seedColumnLayout() {
     const orderedPaths = [...state.nodesByPath.keys()].sort();
     orderedPaths.forEach((path, col) => {
@@ -105,7 +101,6 @@ export function createApp(bootstrap) {
       });
     });
   }
-
   function refreshBaseNodeStyles() {
     for (const node of state.raw.nodes) {
       const isMain = node.key === state.currentMainKey;
@@ -120,7 +115,6 @@ export function createApp(bootstrap) {
       }
     }
   }
-
   function addEdges() {
     let edgeId = 0;
     for (const edge of state.raw.edges) {
@@ -131,16 +125,9 @@ export function createApp(bootstrap) {
       const color = bothMainComponent ? (bothUsed ? '#58667f' : '#6b4040') : '#404852';
       const key = 'e' + edgeId++;
       state.baseEdgeColor.set(key, color);
-      graph.addDirectedEdgeWithKey(key, edge.source, edge.target, {
-        color,
-        size: bothUsed ? 2 : 1,
-        type: 'line',
-        sourceColor: graph.getNodeAttribute(edge.source, 'borderColor') || '#63d7ff',
-        targetColor: graph.getNodeAttribute(edge.target, 'borderColor') || '#ff7e7e',
-      });
+      graph.addDirectedEdgeWithKey(key, edge.source, edge.target, { color, size: bothUsed ? 2 : 1, type: 'line', sourceColor: graph.getNodeAttribute(edge.source, 'borderColor') || '#63d7ff', targetColor: graph.getNodeAttribute(edge.target, 'borderColor') || '#ff7e7e' });
     }
   }
-
   function reapplyBaseEdgeStyles() {
     graph.forEachEdge((edge, attrs, source, target) => {
       const bothMainComponent = state.mainComponent.has(source) && state.mainComponent.has(target);
@@ -153,13 +140,11 @@ export function createApp(bootstrap) {
       graph.setEdgeAttribute(edge, 'targetColor', graph.getNodeAttribute(target, 'borderColor') || '#ff7e7e');
     });
   }
-
   function applyOptionalLayout() {
     if (layoutMode !== 'forceatlas2') return;
     const settings = forceAtlas2.inferSettings(graph);
     forceAtlas2.assign(graph, { iterations: 120, settings: { ...settings, gravity: 1, scalingRatio: 14, slowDown: 1.2 } });
   }
-
   function buildNeighborMap() {
     graph.forEachNode((node) => state.neighbors.set(node, new Set([node])));
     graph.forEachEdge((edge, attrs, source, target) => {
@@ -170,21 +155,51 @@ export function createApp(bootstrap) {
 
   function renderPathList() {
     if (!currentPath.length) {
+      pathCursorIndex = -1;
       dom.pathList.innerHTML = '<div class="path-empty">No path selected.</div>';
       return;
     }
+    if (pathCursorIndex < 0 || pathCursorIndex >= currentPath.length) pathCursorIndex = 0;
     dom.pathList.innerHTML = currentPath.map((nodeId, idx) => {
       const node = state.rawNodeByKey.get(nodeId);
-      return '<button class="path-item" data-node-id="' + escapeHtml(nodeId) + '"><span class="path-step">' + idx + '</span><span class="path-main"><span class="path-label">' + escapeHtml(node?.label || nodeId) + '</span><span class="path-file mono">' + escapeHtml(node?.path || 'unknown') + '</span></span></button>';
+      const fileColor = fileColorByPath.get(node?.path || '') || '#8f9bb3';
+      const selected = idx === pathCursorIndex ? 'true' : 'false';
+      return '<button class="path-item" data-selected="' + selected + '" data-node-id="' + escapeHtml(nodeId) + '" data-index="' + idx + '"><span class="path-step">' + idx + '</span><span class="path-main"><span class="path-label">' + escapeHtml(node?.label || nodeId) + '</span><span class="path-file mono"><span class="selection-accent"><span class="selection-dot" style="background:' + escapeHtml(fileColor) + ';"></span><span style="color:' + escapeHtml(fileColor) + '">' + escapeHtml(node?.path || 'unknown') + '</span></span></span></span></button>';
     }).join('');
-    dom.pathList.querySelectorAll('[data-node-id]').forEach((el) => el.addEventListener('click', () => {
-      const nodeId = el.getAttribute('data-node-id');
-      if (!nodeId) return;
-      selectedNode = nodeId;
-      updateInspect(nodeId);
-      hoveredNode = nodeId;
-      applyVisualState(dom.search.value);
-    }));
+    dom.pathList.querySelectorAll('[data-node-id]').forEach((el) => {
+      el.addEventListener('click', () => activatePathRow(Number(el.getAttribute('data-index') || '0')));
+    });
+  }
+
+  function activatePathRow(index) {
+    if (!currentPath.length) return;
+    pathCursorIndex = Math.max(0, Math.min(currentPath.length - 1, index));
+    const nodeId = currentPath[pathCursorIndex];
+    selectedNode = nodeId;
+    hoveredNode = nodeId;
+    updateInspect(nodeId);
+    renderPathList();
+    applyVisualState(dom.search.value);
+    const activeEl = dom.pathList.querySelector(`[data-index="${pathCursorIndex}"]`);
+    activeEl?.scrollIntoView({ block: 'nearest' });
+  }
+
+  function handlePathListKeydown(event) {
+    if (!currentPath.length) return;
+    if (event.key === 'ArrowDown' || event.key === 'Ctrl+j' || (event.ctrlKey && event.key.toLowerCase() === 'j')) {
+      event.preventDefault();
+      activatePathRow(Math.min(currentPath.length - 1, pathCursorIndex + 1));
+      return;
+    }
+    if (event.key === 'ArrowUp' || event.key === 'Ctrl+k' || (event.ctrlKey && event.key.toLowerCase() === 'k')) {
+      event.preventDefault();
+      activatePathRow(Math.max(0, pathCursorIndex - 1));
+      return;
+    }
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      activatePathRow(pathCursorIndex < 0 ? 0 : pathCursorIndex);
+    }
   }
 
   function setPath(nodePath) {
@@ -197,6 +212,7 @@ export function createApp(bootstrap) {
         if (edge) pathEdgeSet.add(edge);
       }
     }
+    pathCursorIndex = currentPath.length ? 0 : -1;
     renderPathList();
   }
 
@@ -216,7 +232,6 @@ export function createApp(bootstrap) {
     }
     syncFocusedFieldUI();
   }
-
   function runPathSearch() {
     const from = resolveNodeInput(state, dom.pathFromInput.value);
     const to = resolveNodeInput(state, dom.pathToInput.value);
@@ -248,10 +263,11 @@ export function createApp(bootstrap) {
     const preview = sourcePreview(state, node);
     const startLine = node.range?.start?.line || 1;
     const range = node.range ? node.range.start.line + ':' + node.range.start.column + ' - ' + node.range.end.line + ':' + node.range.end.column : 'unknown';
-    dom.selection.textContent = attrs.label + ' — ' + status;
+    const fileColor = attrs.borderColor || '#8f9bb3';
+    dom.selection.innerHTML = '<span class="selection-accent"><span class="selection-dot" style="background:' + escapeHtml(fileColor) + '"></span><span>' + escapeHtml(attrs.label) + ' — ' + escapeHtml(status) + '</span></span>';
     dom.inspect.innerHTML = '<strong>' + escapeHtml(attrs.label) + '</strong><br>' +
       '<span class="mono">key: ' + escapeHtml(nodeId) + '</span><br>' +
-      '<span class="mono">path: ' + escapeHtml(attrs.path || 'unknown') + '</span><br>' +
+      '<span class="mono">path: <span style="color:' + escapeHtml(fileColor) + '">' + escapeHtml(attrs.path || 'unknown') + '</span></span><br>' +
       '<span class="mono">file border: ' + escapeHtml(attrs.borderColor || 'unknown') + '</span><br>' +
       'type: ' + escapeHtml(attrs.typeName || 'unknown') + '<br>' +
       'visibility: ' + escapeHtml(attrs.visibility || 'unknown') + '<br>' +
@@ -273,7 +289,6 @@ export function createApp(bootstrap) {
       || fileContent.toLowerCase().includes(q)
       || String(node.sourceSnippet || '').toLowerCase().includes(q);
   }
-
   function applyVisualState(query = '') {
     const q = query.trim().toLowerCase();
     const hoverSet = hoveredNode ? state.neighbors.get(hoveredNode) || new Set([hoveredNode]) : null;
@@ -318,15 +333,12 @@ export function createApp(bootstrap) {
     reapplyBaseEdgeStyles();
     applyVisualState(dom.search.value);
     updateInspect(nodeId);
-    dom.selection.textContent = 'Main source node: ' + graph.getNodeAttribute(nodeId, 'label') + ' — ' + state.currentMainPath;
   }
-
   function fillMainSourceSelect() {
     const uniquePaths = [...new Set(state.raw.nodes.map((n) => n.path || 'unknown'))].sort();
     dom.mainSourceSelect.innerHTML = uniquePaths.map((path) => '<option value="' + escapeHtml(path) + '">' + escapeHtml(path) + '</option>').join('');
     if (state.currentMainPath) dom.mainSourceSelect.value = state.currentMainPath;
   }
-
   function applyFloatingPaneSize() {
     document.documentElement.style.setProperty('--pane-width', rightPaneWidth + 'px');
     document.documentElement.style.setProperty('--pane-height', rightPaneHeight + 'px');
@@ -339,7 +351,6 @@ export function createApp(bootstrap) {
       dom.rightPane.style.height = '100%';
     }
   }
-
   function attachRightPaneResize() {
     if (!dom.rightPaneResizeCorner) return;
     dom.rightPaneResizeCorner.addEventListener('pointerdown', (event) => {
@@ -369,7 +380,6 @@ export function createApp(bootstrap) {
       window.addEventListener('pointerup', up);
     });
   }
-
   function drawDirectionOverlay() {
     if (!renderEdgeDirection) return;
     const ctx = sigma.getCanvases()?.edgeLabels;
@@ -484,14 +494,8 @@ export function createApp(bootstrap) {
     if (dom.pathFromInput.value || dom.pathToInput.value) runPathSearch();
     else updatePathStatus(applyDirections ? 'Directed traversal enabled.' : 'Ignoring edge direction.');
   });
-  dom.renderEdgeDirectionToggle.addEventListener('change', () => {
-    renderEdgeDirection = dom.renderEdgeDirectionToggle.checked;
-    sigma.refresh();
-  });
-  dom.lineNumbersToggle.addEventListener('change', () => {
-    showLineNumbers = dom.lineNumbersToggle.checked;
-    if (selectedNode) updateInspect(selectedNode);
-  });
+  dom.renderEdgeDirectionToggle.addEventListener('change', () => { renderEdgeDirection = dom.renderEdgeDirectionToggle.checked; sigma.refresh(); });
+  dom.lineNumbersToggle.addEventListener('change', () => { showLineNumbers = dom.lineNumbersToggle.checked; if (selectedNode) updateInspect(selectedNode); });
   dom.layoutModeSelect.addEventListener('change', () => {
     layoutMode = dom.layoutModeSelect.value;
     const next = new URL(window.location.href);
@@ -524,6 +528,8 @@ export function createApp(bootstrap) {
   dom.pathToInput.addEventListener('focus', () => { focusedPathField = 'to'; syncFocusedFieldUI(); });
   dom.pathFromInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') runPathSearch(); });
   dom.pathToInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') runPathSearch(); });
+  dom.pathList.addEventListener('keydown', handlePathListKeydown);
+  dom.pathList.tabIndex = 0;
   sigma.on('clickNode', ({ node }) => {
     selectedNode = node;
     if (mainComponentFocusMode) setMainFromNode(node);

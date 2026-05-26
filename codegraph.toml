@@ -1,0 +1,28 @@
+[ui]
+pane_width = 840
+pane_height = 1400
+pane_transparency = 0.38
+active_tab = "code-search"
+show_line_numbers = false
+render_edge_direction = true
+
+[graph]
+layout = "columns"
+node_size_mode = "status"
+node_size_base = 4
+node_size_code_factor = 0.99
+apply_directions = true
+
+[colors]
+file_palette = [
+  "#63d7ff",
+  "#ff7e7e",
+  "#67db8b",
+  "#ffd54f",
+  "#c792ea",
+  "#82aaff",
+  "#f78c6c",
+  "#89ddff",
+  "#c3e88d",
+  "#ffcb6b"
+]
