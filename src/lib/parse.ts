@@ -110,7 +110,7 @@ export function parseStructuredGraph(text: string): GraphData {
 }
 
 export function loadGraphFromDefaultInput(): GraphData {
-  const inputPath = process.env.CODEGRAPH_INPUT || join(process.cwd(), 'public', 'paste.txt');
+  const inputPath = process.env.CODEGRAPH_INPUT || join(process.cwd(), 'public', 'graph.json');
   const raw = readFileSync(inputPath, 'utf8');
   return parseStructuredGraph(raw);
 }
