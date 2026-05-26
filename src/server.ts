@@ -1,11 +1,7 @@
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
-import { renderHtml } from './lib/html';
-import { parseStructuredGraph } from './lib/parse';
+import { renderHtml } from './lib/html.ts';
+import { loadGraphFromDefaultInput } from './lib/parse.ts';
 
-const inputPath = process.env.CODEGRAPH_INPUT || join(process.cwd(), 'public', 'paste.txt');
-const raw = readFileSync(inputPath, 'utf8');
-const graphData = parseStructuredGraph(raw);
+const graphData = loadGraphFromDefaultInput();
 
 Bun.serve({
   port: 3000,
@@ -16,4 +12,4 @@ Bun.serve({
 });
 
 console.log('Sigma graph viewer available at http://localhost:3000');
-console.log('main =', graphData.mainKey, 'reachable =', graphData.reachable.length, 'unreachable =', graphData.unreachable.length, 'nodes =', graphData.nodes.length);
+console.log('main =', graphData.mainKey, 'reachable =', graphData.reachable.length, 'unreachable =', graphData.unreachable.length, 'nodes =', graphData.nodes.length, 'files =', graphData.files.length);

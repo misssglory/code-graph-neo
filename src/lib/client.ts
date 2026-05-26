@@ -5,6 +5,8 @@ import forceAtlas2 from 'https://esm.sh/graphology-layout-forceatlas2@0.10.1';
 
 const raw = window.__GRAPH__;
 const reachable = new Set(raw.reachable);
+const files = raw.files || [];
+const fileContentByPath = new Map(files.map((f) => [f.path, f.content || '']));
 const container = document.getElementById('graph-container');
 const inspect = document.getElementById('inspect');
 const selection = document.getElementById('selection');
@@ -16,6 +18,20 @@ const neighbors = new Map();
 const params = new URL(window.location.href).searchParams;
 const layoutMode = params.get('layout') || 'columns';
 let hoveredNode = null;
+let selectedNode = null;
+
+function sourcePreview(node) {
+  const path = node.path || '';
+  const content = fileContentByPath.get(path) || '';
+  if (!content) return node.sourceSnippet || '';
+  if (node.range?.start?.line && node.range?.end?.line) {
+    const lines = content.split('\n');
+    const start = Math.max(0, node.range.start.line - 1);
+    const end = Math.min(lines.length, node.range.end.line);
+    return lines.slice(start, end).join('\n');
+  }
+  return node.sourceSnippet || '';
+}
 
 function seedColumnLayout() {
   const nodesByPath = new Map();
@@ -24,7 +40,6 @@ function seedColumnLayout() {
     if (!nodesByPath.has(path)) nodesByPath.set(path, []);
     nodesByPath.get(path).push(node);
   }
-
   const orderedPaths = [...nodesByPath.keys()].sort();
   orderedPaths.forEach((path, col) => {
     const list = nodesByPath.get(path);
@@ -39,6 +54,9 @@ function seedColumnLayout() {
         path,
         typeName: node.type || 'unknown',
         visibility: node.visibility || 'unknown',
+        signature: node.signature || '',
+        sourceSnippet: node.sourceSnippet || '',
+        range: node.range || null,
         x: col * 8 + ((row % 2) * 0.35),
         y: row * 1.8,
         size: isMain ? 18 : isReachable ? 12 : 10,
@@ -138,24 +156,53 @@ const sigma = new Sigma(graph, container, {
     context.font = '500 12px Inter, ui-sans-serif, system-ui, sans-serif';
     context.fillStyle = '#ffffff';
     context.fillText(label, x, y + 4);
-  },
-  defaultDrawNodeHover: (context, data) => {
-    const glow = (data.size || 8) + 8;
-    context.beginPath();
-    context.arc(data.x, data.y, glow, 0, Math.PI * 2);
-    context.fillStyle = 'rgba(255,255,255,0.08)';
-    context.fill();
   }
 });
 
 sigma.getCamera().animatedReset({ duration: 0 });
+
+function updateInspect(nodeId) {
+  const node = raw.nodes.find((n) => n.key === nodeId);
+  if (!node) return;
+  const attrs = graph.getNodeAttributes(nodeId);
+  const outgoing = graph.outboundNeighbors(nodeId).slice(0, 24).map((id) => graph.getNodeAttribute(id, 'label'));
+  const incoming = graph.inboundNeighbors(nodeId).slice(0, 24).map((id) => graph.getNodeAttribute(id, 'label'));
+  const status = nodeId === raw.mainKey ? 'entrypoint' : reachable.has(nodeId) ? 'reachable from main' : 'unreachable from main';
+  const preview = sourcePreview(node);
+  const range = node.range ? node.range.start.line + ':' + node.range.start.column + ' - ' + node.range.end.line + ':' + node.range.end.column : 'unknown';
+  selection.textContent = attrs.label + ' — ' + status;
+  inspect.innerHTML = '<strong>' + attrs.label + '</strong><br>' +
+    'key: ' + nodeId + '<br>' +
+    'path: ' + (attrs.path || 'unknown') + '<br>' +
+    'type: ' + (attrs.typeName || 'unknown') + '<br>' +
+    'visibility: ' + (attrs.visibility || 'unknown') + '<br>' +
+    'range: ' + range + '<br>' +
+    (attrs.signature ? 'signature: ' + attrs.signature + '<br>' : '') +
+    'status: ' + status + '<br><br>' +
+    '<strong>Calls</strong>: ' + (outgoing.join(', ') || 'none') + '<br><br>' +
+    '<strong>Called by</strong>: ' + (incoming.join(', ') || 'none') + '<br><br>' +
+    '<strong>Source</strong><pre style="white-space:pre-wrap;color:#fff;background:#050505;padding:10px;border-radius:10px;max-height:260px;overflow:auto;">' +
+    (preview || 'No source snippet available').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;') +
+    '</pre>';
+}
+
+function matchesQuery(node, attrs, q) {
+  if (!q) return true;
+  const fileContent = fileContentByPath.get(attrs.path || '') || '';
+  return attrs.label.toLowerCase().includes(q)
+    || String(attrs.path || '').toLowerCase().includes(q)
+    || String(attrs.signature || '').toLowerCase().includes(q)
+    || fileContent.toLowerCase().includes(q)
+    || String(node.sourceSnippet || '').toLowerCase().includes(q);
+}
 
 function applyVisualState(query = '') {
   const q = query.trim().toLowerCase();
   const hoverSet = hoveredNode ? neighbors.get(hoveredNode) || new Set([hoveredNode]) : null;
 
   graph.forEachNode((node, attrs) => {
-    const matches = !q || attrs.label.toLowerCase().includes(q) || String(attrs.path || '').toLowerCase().includes(q);
+    const rawNode = raw.nodes.find((n) => n.key === node);
+    const matches = rawNode ? matchesQuery(rawNode, attrs, q) : true;
     const hidden = !matches;
     graph.setNodeAttribute(node, 'hidden', hidden);
     const related = !hoverSet || hoverSet.has(node);
@@ -179,20 +226,8 @@ function applyVisualState(query = '') {
 search.addEventListener('input', () => applyVisualState(search.value));
 
 sigma.on('clickNode', ({ node }) => {
-  const attrs = graph.getNodeAttributes(node);
-  const outgoing = graph.outboundNeighbors(node).slice(0, 24).map((id) => graph.getNodeAttribute(id, 'label'));
-  const incoming = graph.inboundNeighbors(node).slice(0, 24).map((id) => graph.getNodeAttribute(id, 'label'));
-  const status = node === raw.mainKey ? 'entrypoint' : reachable.has(node) ? 'reachable from main' : 'unreachable from main';
-  selection.textContent = attrs.label + ' — ' + status;
-  inspect.innerHTML = '<strong>' + attrs.label + '</strong><br>' +
-    'key: ' + node + '<br>' +
-    'path: ' + (attrs.path || 'unknown') + '<br>' +
-    'type: ' + (attrs.typeName || 'unknown') + '<br>' +
-    'visibility: ' + (attrs.visibility || 'unknown') + '<br>' +
-    'status: ' + status + '<br><br>' +
-    '<strong>Calls</strong>: ' + (outgoing.join(', ') || 'none') + '<br><br>' +
-    '<strong>Called by</strong>: ' + (incoming.join(', ') || 'none') + '<br><br>' +
-    '<strong>Layout</strong>: ' + layoutMode;
+  selectedNode = node;
+  updateInspect(node);
 });
 
 sigma.on('enterNode', ({ node }) => {
@@ -206,4 +241,5 @@ sigma.on('leaveNode', () => {
 });
 
 applyVisualState();
+if (raw.mainKey) updateInspect(raw.mainKey);
 `;
