@@ -19,6 +19,8 @@ const pathClearBtn = document.getElementById('path-clear');
 const pathReverseBtn = document.getElementById('path-reverse');
 const pathStatus = document.getElementById('path-status');
 const pathList = document.getElementById('path-list');
+const pathPane = document.getElementById('path-pane');
+const pathPaneToggle = document.getElementById('toggle-path-pane');
 const directedToggle = document.getElementById('directed-toggle');
 const lineNumbersToggle = document.getElementById('line-numbers-toggle');
 const layoutModeSelect = document.getElementById('layout-mode');
@@ -29,6 +31,14 @@ const sizeBaseValue = document.getElementById('node-size-base-value');
 const sizeCodeFactorValue = document.getElementById('node-size-code-factor-value');
 const mainSourceSelect = document.getElementById('main-source-select');
 const recomputeMainBtn = document.getElementById('recompute-main');
+const transparencyInput = document.getElementById('pane-transparency');
+const transparencyValue = document.getElementById('pane-transparency-value');
+const collapseSidebarBtn = document.getElementById('collapse-sidebar');
+const sidebar = document.getElementById('left-pane');
+const sidebarTabs = document.querySelectorAll('[data-tab-button]');
+const sidebarPanels = document.querySelectorAll('[data-tab-panel]');
+const mainComponentFocusBtn = document.getElementById('main-component-focus');
+const appRoot = document.getElementById('app-root');
 const graph = new Graph({ multi: true, allowSelfLoops: true });
 const baseNodeColor = new Map();
 const baseEdgeColor = new Map();
@@ -53,6 +63,10 @@ let currentMainPath = currentMainKey ? (rawNodeByKey.get(currentMainKey)?.path |
 let mainComponent = new Set();
 let usedInMainComponent = new Set();
 let deadInMainComponent = new Set();
+let pathPaneVisible = true;
+let paneTransparency = 0.58;
+let activeTab = 'code-search';
+let mainComponentFocusMode = false;
 
 for (const node of raw.nodes) {
   const label = String(node.label || '').toLowerCase();
@@ -130,9 +144,7 @@ function sourcePreview(node) {
 
 function renderCodeBlock(code, startLine = 1) {
   const highlighted = Prism.highlight(code || '', Prism.languages.rust, 'rust');
-  if (!showLineNumbers) {
-    return '<pre class="code-block"><code class="language-rust">' + highlighted + '</code></pre>';
-  }
+  if (!showLineNumbers) return '<pre class="code-block"><code class="language-rust">' + highlighted + '</code></pre>';
   const lines = highlighted.split('\n');
   const rows = lines.map((line, idx) => '<span class="code-row"><span class="code-ln">' + (startLine + idx) + '</span><span class="code-src">' + (line || ' ') + '</span></span>').join('');
   return '<pre class="code-block with-lines"><code class="language-rust">' + rows + '</code></pre>';
@@ -213,11 +225,7 @@ function addEdges() {
     const color = bothMainComponent ? (bothUsed ? '#58667f' : '#6b4040') : '#404852';
     const key = 'e' + edgeId++;
     baseEdgeColor.set(key, color);
-    graph.addDirectedEdgeWithKey(key, edge.source, edge.target, {
-      color,
-      size: bothUsed ? 2 : 1,
-      type: 'line'
-    });
+    graph.addDirectedEdgeWithKey(key, edge.source, edge.target, { color, size: bothUsed ? 2 : 1, type: 'line' });
   }
 }
 
@@ -235,15 +243,7 @@ function reapplyBaseEdgeStyles() {
 function applyOptionalLayout() {
   if (layoutMode !== 'forceatlas2') return;
   const settings = forceAtlas2.inferSettings(graph);
-  forceAtlas2.assign(graph, {
-    iterations: 120,
-    settings: {
-      ...settings,
-      gravity: 1,
-      scalingRatio: 14,
-      slowDown: 1.2
-    }
-  });
+  forceAtlas2.assign(graph, { iterations: 120, settings: { ...settings, gravity: 1, scalingRatio: 14, slowDown: 1.2 } });
 }
 
 function buildNeighborMap() {
@@ -303,9 +303,7 @@ function findNodePath(source, target) {
 function edgeKeyBetween(source, target) {
   if (applyDirections) {
     const edges = graph.outboundEdges(source) || [];
-    for (const edge of edges) {
-      if (graph.extremities(edge)[1] === target) return edge;
-    }
+    for (const edge of edges) if (graph.extremities(edge)[1] === target) return edge;
     return null;
   }
   const edges = graph.edges(source, target) || [];
@@ -413,21 +411,57 @@ function fillMainSourceSelect() {
   if (currentMainPath) mainSourceSelect.value = currentMainPath;
 }
 
+function setMainFromNode(nodeId) {
+  const node = rawNodeByKey.get(nodeId);
+  if (!node) return;
+  currentMainKey = nodeId;
+  currentMainPath = node.path || '';
+  if (currentMainPath) mainSourceSelect.value = currentMainPath;
+  recomputeMainComponent();
+  refreshBaseNodeStyles();
+  reapplyBaseEdgeStyles();
+  applyVisualState(search.value);
+  updateInspect(nodeId);
+  selection.textContent = 'Main source node: ' + graph.getNodeAttribute(nodeId, 'label') + ' — ' + currentMainPath;
+}
+
 function updateMainFromSelectedSource() {
   const path = mainSourceSelect.value;
   const candidates = raw.nodes.filter((n) => (n.path || '') === path);
   const explicitMain = candidates.find((n) => String(n.label || '').toLowerCase() === 'main');
   const chosen = explicitMain || candidates[0] || null;
   if (!chosen) return;
-  currentMainKey = chosen.key;
-  currentMainPath = chosen.path || '';
-  recomputeMainComponent();
-  refreshBaseNodeStyles();
-  reapplyBaseEdgeStyles();
-  if (selectedNode === null) selectedNode = currentMainKey;
-  applyVisualState(search.value);
-  updateInspect(selectedNode || currentMainKey);
-  selection.textContent = 'Main source: ' + currentMainPath + ' — entry node ' + graph.getNodeAttribute(currentMainKey, 'label');
+  setMainFromNode(chosen.key);
+}
+
+function applyPaneTransparency() {
+  document.documentElement.style.setProperty('--panel-alpha', String(paneTransparency));
+  document.documentElement.style.setProperty('--panel-alpha-2', String(Math.max(0.04, paneTransparency - 0.10)));
+  transparencyValue.textContent = paneTransparency.toFixed(2);
+}
+
+function setActiveTab(tabId) {
+  activeTab = tabId;
+  sidebarTabs.forEach((btn) => btn.dataset.active = btn.dataset.tabButton === tabId ? 'true' : 'false');
+  sidebarPanels.forEach((panel) => panel.hidden = panel.dataset.tabPanel !== tabId);
+}
+
+function setPathPaneVisibility(visible) {
+  pathPaneVisible = visible;
+  pathPane.hidden = !visible;
+  pathPaneToggle.textContent = visible ? 'Hide path pane' : 'Show path pane';
+  appRoot.dataset.pathPaneVisible = visible ? 'true' : 'false';
+}
+
+function setSidebarCollapsed(collapsed) {
+  appRoot.dataset.sidebarCollapsed = collapsed ? 'true' : 'false';
+  collapseSidebarBtn.textContent = collapsed ? 'Expand panel' : 'Collapse panel';
+}
+
+function setMainComponentFocusMode(enabled) {
+  mainComponentFocusMode = enabled;
+  mainComponentFocusBtn.dataset.active = enabled ? 'true' : 'false';
+  mainComponentFocusBtn.textContent = enabled ? 'Main component target: ON' : 'Main component target: OFF';
 }
 
 recomputeMainComponent();
@@ -454,11 +488,25 @@ const sigma = new Sigma(graph, container, {
     const label = String(data.label || '');
     const x = data.x + size + 6;
     const y = data.y;
-    const highlighted = hoveredNode === data.key || pathNodeSet.has(data.key);
+    const highlighted = hoveredNode === data.key || pathNodeSet.has(data.key) || selectedNode === data.key;
     context.font = (highlighted ? '600 ' : '500 ') + '12px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace';
-    context.fillStyle = highlighted ? (pathNodeSet.has(data.key) ? '#ffe082' : '#ffffff') : '#d8deeb';
-    context.shadowColor = highlighted ? 'rgba(0,0,0,0.55)' : 'rgba(0,0,0,0.35)';
-    context.shadowBlur = highlighted ? 8 : 3;
+    if (highlighted) {
+      const width = context.measureText(label).width;
+      const boxX = x - 6;
+      const boxY = y - 11;
+      const boxW = width + 12;
+      const boxH = 18;
+      context.fillStyle = 'rgba(0,0,0,0.88)';
+      context.beginPath();
+      context.roundRect(boxX, boxY, boxW, boxH, 8);
+      context.fill();
+      context.fillStyle = pathNodeSet.has(data.key) ? '#ffe082' : '#ffffff';
+      context.fillText(label, x, y + 3);
+      return;
+    }
+    context.fillStyle = '#d8deeb';
+    context.shadowColor = 'rgba(0,0,0,0.35)';
+    context.shadowBlur = 3;
     context.fillText(label, x, y + 4);
     context.shadowBlur = 0;
   }
@@ -519,8 +567,8 @@ function applyVisualState(query = '') {
     else if (!related) color = 'rgba(255,255,255,0.14)';
     graph.setNodeAttribute(node, 'color', color);
     const baseSize = computeNodeSize(node);
-    graph.setNodeAttribute(node, 'size', onPath ? baseSize + 3 : hoveredNode === node ? baseSize + 2 : baseSize);
-    graph.setNodeAttribute(node, 'forceLabel', hoveredNode === node || node === currentMainKey || onPath);
+    graph.setNodeAttribute(node, 'size', onPath ? baseSize + 3 : hoveredNode === node || selectedNode === node ? baseSize + 2 : baseSize);
+    graph.setNodeAttribute(node, 'forceLabel', hoveredNode === node || node === currentMainKey || onPath || selectedNode === node);
   });
 
   graph.forEachEdge((edge, attrs, source, target) => {
@@ -545,6 +593,7 @@ search.addEventListener('input', () => applyVisualState(search.value));
 pathGoBtn.addEventListener('click', runPathSearch);
 pathClearBtn.addEventListener('click', clearPathSearch);
 pathReverseBtn.addEventListener('click', reversePathInputs);
+pathPaneToggle.addEventListener('click', () => setPathPaneVisibility(!pathPaneVisible));
 directedToggle.addEventListener('change', () => {
   applyDirections = directedToggle.checked;
   if (pathFromInput.value || pathToInput.value) runPathSearch();
@@ -579,6 +628,13 @@ sizeCodeFactorInput.addEventListener('input', () => {
   applyVisualState(search.value);
 });
 recomputeMainBtn.addEventListener('click', updateMainFromSelectedSource);
+mainComponentFocusBtn.addEventListener('click', () => setMainComponentFocusMode(!mainComponentFocusMode));
+transparencyInput.addEventListener('input', () => {
+  paneTransparency = Number(transparencyInput.value);
+  applyPaneTransparency();
+});
+collapseSidebarBtn.addEventListener('click', () => setSidebarCollapsed(appRoot.dataset.sidebarCollapsed !== 'true'));
+sidebarTabs.forEach((btn) => btn.addEventListener('click', () => setActiveTab(btn.dataset.tabButton)));
 pathFromInput.addEventListener('focus', () => { focusedPathField = 'from'; syncFocusedFieldUI(); });
 pathToInput.addEventListener('focus', () => { focusedPathField = 'to'; syncFocusedFieldUI(); });
 pathFromInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') runPathSearch(); });
@@ -586,6 +642,10 @@ pathToInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') runPathS
 
 sigma.on('clickNode', ({ node }) => {
   selectedNode = node;
+  if (mainComponentFocusMode) {
+    setMainFromNode(node);
+    return;
+  }
   updateInspect(node);
   assignNodeToFocusedField(node);
 });
@@ -604,9 +664,15 @@ layoutModeSelect.value = layoutMode;
 sizeModeSelect.value = nodeSizeMode;
 sizeBaseInput.value = String(nodeSizeBase);
 sizeCodeFactorInput.value = String(nodeSizeCodeFactor);
+transparencyInput.value = String(paneTransparency);
+applyPaneTransparency();
 syncNodeSizeControls();
 syncFocusedFieldUI();
 renderPathList();
+setActiveTab(activeTab);
+setPathPaneVisibility(true);
+setSidebarCollapsed(false);
+setMainComponentFocusMode(false);
 applyVisualState();
 updatePathStatus('No path selected. Focus source or sink, then click a node to assign it.');
 if (currentMainKey) {
