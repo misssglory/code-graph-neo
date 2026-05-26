@@ -1,0 +1,415 @@
+{
+  "graph": {
+    "edges": [
+      {
+        "attributes": {
+          "type": "calls"
+        },
+        "source": "func::ast_from_file",
+        "target": "func::source_for_commit"
+      },
+      {
+        "attributes": {
+          "type": "calls"
+        },
+        "source": "func::ast_from_file",
+        "target": "func::make_ast"
+      },
+      {
+        "attributes": {
+          "type": "calls"
+        },
+        "source": "func::ast_from_file",
+        "target": "unresolved::unwrap_or_else"
+      },
+      {
+        "attributes": {
+          "type": "calls"
+        },
+        "source": "func::ast_from_file",
+        "target": "unresolved::Json"
+      },
+      {
+        "attributes": {
+          "type": "calls"
+        },
+        "source": "func::main",
+        "target": "unresolved::axum::serve"
+      },
+      {
+        "attributes": {
+          "type": "calls"
+        },
+        "source": "func::main",
+        "target": "unresolved::CorsLayer::permissive"
+      },
+      {
+        "attributes": {
+          "type": "calls"
+        },
+        "source": "func::main",
+        "target": "unresolved::get"
+      },
+      {
+        "attributes": {
+          "type": "calls"
+        },
+        "source": "func::main",
+        "target": "unresolved::parse"
+      },
+      {
+        "attributes": {
+          "type": "calls"
+        },
+        "source": "func::main",
+        "target": "unresolved::tokio::net::TcpListener::bind"
+      },
+      {
+        "attributes": {
+          "type": "calls"
+        },
+        "source": "func::main",
+        "target": "unresolved::layer"
+      },
+      {
+        "attributes": {
+          "type": "calls"
+        },
+        "source": "func::main",
+        "target": "unresolved::route"
+      },
+      {
+        "attributes": {
+          "type": "calls"
+        },
+        "source": "func::git",
+        "target": "unresolved::Json"
+      },
+      {
+        "attributes": {
+          "type": "calls"
+        },
+        "source": "func::git",
+        "target": "unresolved::unwrap_or_else"
+      },
+      {
+        "attributes": {
+          "type": "calls"
+        },
+        "source": "func::src",
+        "target": "func::source_for_commit"
+      },
+      {
+        "attributes": {
+          "type": "calls"
+        },
+        "source": "func::src",
+        "target": "unresolved::unwrap_or_else"
+      },
+      {
+        "attributes": {
+          "type": "calls"
+        },
+        "source": "func::src",
+        "target": "unresolved::unwrap_or_default"
+      },
+      {
+        "attributes": {
+          "type": "calls"
+        },
+        "source": "func::src",
+        "target": "unresolved::Json"
+      },
+      {
+        "attributes": {
+          "type": "calls"
+        },
+        "source": "func::src",
+        "target": "unresolved::to_string"
+      },
+      {
+        "attributes": {
+          "type": "calls"
+        },
+        "source": "func::callgrind",
+        "target": "unresolved::Json"
+      },
+      {
+        "attributes": {
+          "type": "calls"
+        },
+        "source": "func::callgrind",
+        "target": "unresolved::insert"
+      },
+      {
+        "attributes": {
+          "type": "calls"
+        },
+        "source": "func::find_range",
+        "target": "unresolved::find"
+      },
+      {
+        "attributes": {
+          "type": "calls"
+        },
+        "source": "func::find_range",
+        "target": "unresolved::unwrap_or"
+      },
+      {
+        "attributes": {
+          "type": "calls"
+        },
+        "source": "func::make_ast",
+        "target": "func::find_range"
+      },
+      {
+        "attributes": {
+          "type": "calls"
+        },
+        "source": "func::make_ast",
+        "target": "unresolved::push"
+      },
+      {
+        "attributes": {
+          "type": "calls"
+        },
+        "source": "func::make_ast",
+        "target": "unresolved::contains"
+      },
+      {
+        "attributes": {
+          "type": "calls"
+        },
+        "source": "func::histogram",
+        "target": "unresolved::entry"
+      },
+      {
+        "attributes": {
+          "type": "calls"
+        },
+        "source": "func::histogram",
+        "target": "unresolved::or_insert"
+      },
+      {
+        "attributes": {
+          "type": "calls"
+        },
+        "source": "func::histogram",
+        "target": "unresolved::find_iter"
+      },
+      {
+        "attributes": {
+          "type": "calls"
+        },
+        "source": "func::histogram",
+        "target": "unresolved::unwrap_or_default"
+      },
+      {
+        "attributes": {
+          "type": "calls"
+        },
+        "source": "func::histogram",
+        "target": "unresolved::map_err"
+      },
+      {
+        "attributes": {
+          "type": "calls"
+        },
+        "source": "func::histogram",
+        "target": "unresolved::unwrap_or_else"
+      },
+      {
+        "attributes": {
+          "type": "calls"
+        },
+        "source": "func::histogram",
+        "target": "unresolved::as_str"
+      },
+      {
+        "attributes": {
+          "type": "calls"
+        },
+        "source": "func::histogram",
+        "target": "unresolved::to_string"
+      },
+      {
+        "attributes": {
+          "type": "calls"
+        },
+        "source": "func::histogram",
+        "target": "unresolved::Json"
+      }
+    ],
+    "nodes": [
+      {
+        "attributes": {
+          "calls": [
+            "source_for_commit",
+            "make_ast",
+            "unwrap_or_else",
+            "Json"
+          ],
+          "color": "#9E9E9E",
+          "label": "ast_from_file",
+          "level": 0,
+          "path": "src/main.rs",
+          "size": 1.0,
+          "type": "function",
+          "visibility": "private"
+        },
+        "key": "func::ast_from_file"
+      },
+      {
+        "attributes": {
+          "calls": [
+            "axum::serve",
+            "CorsLayer::permissive",
+            "get",
+            "parse",
+            "tokio::net::TcpListener::bind",
+            "layer",
+            "route"
+          ],
+          "color": "#9E9E9E",
+          "label": "main",
+          "level": 0,
+          "path": "src/main.rs",
+          "size": 1.0,
+          "type": "function",
+          "visibility": "private"
+        },
+        "key": "func::main"
+      },
+      {
+        "attributes": {
+          "calls": [
+            "Json",
+            "unwrap_or_else"
+          ],
+          "color": "#9E9E9E",
+          "label": "git",
+          "level": 0,
+          "path": "src/main.rs",
+          "size": 1.0,
+          "type": "function",
+          "visibility": "private"
+        },
+        "key": "func::git"
+      },
+      {
+        "attributes": {
+          "calls": [
+            "source_for_commit",
+            "unwrap_or_else",
+            "unwrap_or_default",
+            "Json",
+            "to_string"
+          ],
+          "color": "#9E9E9E",
+          "label": "src",
+          "level": 0,
+          "path": "src/main.rs",
+          "size": 1.0,
+          "type": "function",
+          "visibility": "private"
+        },
+        "key": "func::src"
+      },
+      {
+        "attributes": {
+          "calls": [
+            "Json",
+            "insert"
+          ],
+          "color": "#9E9E9E",
+          "label": "callgrind",
+          "level": 0,
+          "path": "src/main.rs",
+          "size": 1.0,
+          "type": "function",
+          "visibility": "private"
+        },
+        "key": "func::callgrind"
+      },
+      {
+        "attributes": {
+          "calls": [
+            "find",
+            "unwrap_or"
+          ],
+          "color": "#9E9E9E",
+          "label": "find_range",
+          "level": 0,
+          "path": "src/main.rs",
+          "size": 1.0,
+          "type": "function",
+          "visibility": "private"
+        },
+        "key": "func::find_range"
+      },
+      {
+        "attributes": {
+          "calls": [],
+          "color": "#9E9E9E",
+          "label": "source_for_commit",
+          "level": 0,
+          "path": "src/main.rs",
+          "size": 1.0,
+          "type": "function",
+          "visibility": "private"
+        },
+        "key": "func::source_for_commit"
+      },
+      {
+        "attributes": {
+          "calls": [
+            "find_range",
+            "push",
+            "contains"
+          ],
+          "color": "#9E9E9E",
+          "label": "make_ast",
+          "level": 0,
+          "path": "src/main.rs",
+          "size": 1.0,
+          "type": "function",
+          "visibility": "private"
+        },
+        "key": "func::make_ast"
+      },
+      {
+        "attributes": {
+          "calls": [
+            "entry",
+            "or_insert",
+            "find_iter",
+            "unwrap_or_default",
+            "map_err",
+            "unwrap_or_else",
+            "as_str",
+            "to_string",
+            "Json"
+          ],
+          "color": "#9E9E9E",
+          "label": "histogram",
+          "level": 0,
+          "path": "src/main.rs",
+          "size": 1.0,
+          "type": "function",
+          "visibility": "private"
+        },
+        "key": "func::histogram"
+      }
+    ]
+  },
+  "metadata": {
+    "root": "/home/mg/gh/rust-ast-server",
+    "stats": {
+      "functions": 9,
+      "impls": 0,
+      "structs": 0,
+      "traits": 0
+    },
+    "timestamp": "2026-05-26T18:19:03.769245666+03:00"
+  }
+}
