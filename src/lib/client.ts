@@ -18,23 +18,41 @@ const pathGoBtn = document.getElementById('path-go');
 const pathClearBtn = document.getElementById('path-clear');
 const pathReverseBtn = document.getElementById('path-reverse');
 const pathStatus = document.getElementById('path-status');
+const pathList = document.getElementById('path-list');
 const directedToggle = document.getElementById('directed-toggle');
 const lineNumbersToggle = document.getElementById('line-numbers-toggle');
+const layoutModeSelect = document.getElementById('layout-mode');
+const sizeModeSelect = document.getElementById('node-size-mode');
+const sizeBaseInput = document.getElementById('node-size-base');
+const sizeCodeFactorInput = document.getElementById('node-size-code-factor');
+const sizeBaseValue = document.getElementById('node-size-base-value');
+const sizeCodeFactorValue = document.getElementById('node-size-code-factor-value');
+const mainSourceSelect = document.getElementById('main-source-select');
+const recomputeMainBtn = document.getElementById('recompute-main');
 const graph = new Graph({ multi: true, allowSelfLoops: true });
 const baseNodeColor = new Map();
 const baseEdgeColor = new Map();
 const neighbors = new Map();
 const rawNodeByKey = new Map(raw.nodes.map((n) => [n.key, n]));
 const labelToKeys = new Map();
-const params = new URL(window.location.href).searchParams;
-const layoutMode = params.get('layout') || 'columns';
+const url = new URL(window.location.href);
+let layoutMode = url.searchParams.get('layout') || 'columns';
 let hoveredNode = null;
 let selectedNode = null;
 let pathNodeSet = new Set();
 let pathEdgeSet = new Set();
+let currentPath = [];
 let applyDirections = true;
 let focusedPathField = 'from';
 let showLineNumbers = false;
+let nodeSizeMode = 'status';
+let nodeSizeBase = 11;
+let nodeSizeCodeFactor = 0.015;
+let currentMainKey = raw.mainKey || null;
+let currentMainPath = currentMainKey ? (rawNodeByKey.get(currentMainKey)?.path || '') : '';
+let mainComponent = new Set();
+let usedInMainComponent = new Set();
+let deadInMainComponent = new Set();
 
 for (const node of raw.nodes) {
   const label = String(node.label || '').toLowerCase();
@@ -61,7 +79,7 @@ function buildAdjacency() {
 
 const { outgoing, incoming } = buildAdjacency();
 
-function bfsFrom(roots) {
+function bfsFrom(roots, onlyWithin) {
   const seen = new Set();
   const queue = [...roots];
   while (queue.length) {
@@ -69,6 +87,7 @@ function bfsFrom(roots) {
     if (seen.has(cur)) continue;
     seen.add(cur);
     for (const next of outgoing.get(cur) || []) {
+      if (onlyWithin && !onlyWithin.has(next)) continue;
       if (!seen.has(next)) queue.push(next);
     }
   }
@@ -89,11 +108,12 @@ function undirectedComponent(start) {
   return seen;
 }
 
-const mainKey = raw.mainKey || null;
-const mainComponent = undirectedComponent(mainKey);
-const rootsInMainComponent = [...mainComponent].filter((key) => (incoming.get(key) || []).filter((src) => mainComponent.has(src)).length === 0);
-const usedInMainComponent = bfsFrom(rootsInMainComponent);
-const deadInMainComponent = new Set([...mainComponent].filter((key) => !usedInMainComponent.has(key)));
+function recomputeMainComponent() {
+  mainComponent = undirectedComponent(currentMainKey);
+  const rootsInMainComponent = [...mainComponent].filter((key) => (incoming.get(key) || []).filter((src) => mainComponent.has(src)).length === 0);
+  usedInMainComponent = bfsFrom(rootsInMainComponent, mainComponent);
+  deadInMainComponent = new Set([...mainComponent].filter((key) => !usedInMainComponent.has(key)));
+}
 
 function sourcePreview(node) {
   const path = node.path || '';
@@ -110,14 +130,47 @@ function sourcePreview(node) {
 
 function renderCodeBlock(code, startLine = 1) {
   const highlighted = Prism.highlight(code || '', Prism.languages.rust, 'rust');
-  const lines = highlighted.split('\n');
   if (!showLineNumbers) {
     return '<pre class="code-block"><code class="language-rust">' + highlighted + '</code></pre>';
   }
-  const rows = lines.map((line, idx) => {
-    return '<span class="code-row"><span class="code-ln">' + (startLine + idx) + '</span><span class="code-src">' + (line || ' ') + '</span></span>';
-  }).join('');
+  const lines = highlighted.split('\n');
+  const rows = lines.map((line, idx) => '<span class="code-row"><span class="code-ln">' + (startLine + idx) + '</span><span class="code-src">' + (line || ' ') + '</span></span>').join('');
   return '<pre class="code-block with-lines"><code class="language-rust">' + rows + '</code></pre>';
+}
+
+function estimateCodeSize(node) {
+  const snippet = sourcePreview(node);
+  if (snippet) return Math.max(1, snippet.split('\n').length);
+  if (node.range?.start?.line && node.range?.end?.line) return Math.max(1, node.range.end.line - node.range.start.line + 1);
+  return 1;
+}
+
+function computeNodeSize(nodeId) {
+  const rawNode = rawNodeByKey.get(nodeId);
+  if (!rawNode) return nodeSizeBase;
+  const isMain = nodeId === currentMainKey;
+  if (nodeSizeMode === 'code') {
+    const codeSize = estimateCodeSize(rawNode);
+    return Math.max(5, nodeSizeBase + Math.sqrt(codeSize) * nodeSizeCodeFactor * 10 + (isMain ? 4 : 0));
+  }
+  if (isMain) return nodeSizeBase + 7;
+  if (deadInMainComponent.has(nodeId)) return nodeSizeBase;
+  if (usedInMainComponent.has(nodeId)) return nodeSizeBase + 2;
+  return nodeSizeBase - 1;
+}
+
+function refreshBaseNodeStyles() {
+  for (const node of raw.nodes) {
+    const isMain = node.key === currentMainKey;
+    const isDead = deadInMainComponent.has(node.key);
+    const isUsed = usedInMainComponent.has(node.key);
+    const color = isMain ? '#63d7ff' : isDead ? '#ff7e7e' : isUsed ? '#67db8b' : '#8f9bb3';
+    baseNodeColor.set(node.key, color);
+    if (graph.hasNode(node.key)) {
+      graph.setNodeAttribute(node.key, 'size', computeNodeSize(node.key));
+      graph.setNodeAttribute(node.key, 'color', color);
+    }
+  }
 }
 
 function seedColumnLayout() {
@@ -131,11 +184,6 @@ function seedColumnLayout() {
   orderedPaths.forEach((path, col) => {
     const list = nodesByPath.get(path);
     list.forEach((node, row) => {
-      const isMain = node.key === mainKey;
-      const isDead = deadInMainComponent.has(node.key);
-      const isUsed = usedInMainComponent.has(node.key);
-      const color = isMain ? '#63d7ff' : isDead ? '#ff7e7e' : isUsed ? '#67db8b' : '#8f9bb3';
-      baseNodeColor.set(node.key, color);
       graph.addNode(node.key, {
         key: node.key,
         label: node.label,
@@ -147,9 +195,9 @@ function seedColumnLayout() {
         range: node.range || null,
         x: col * 8 + ((row % 2) * 0.35),
         y: row * 1.8,
-        size: isMain ? 18 : isDead ? 11 : 12,
-        color,
-        forceLabel: isMain
+        size: computeNodeSize(node.key),
+        color: '#8f9bb3',
+        forceLabel: node.key === currentMainKey
       });
     });
   });
@@ -171,6 +219,17 @@ function addEdges() {
       type: 'line'
     });
   }
+}
+
+function reapplyBaseEdgeStyles() {
+  graph.forEachEdge((edge, attrs, source, target) => {
+    const bothMainComponent = mainComponent.has(source) && mainComponent.has(target);
+    const bothUsed = usedInMainComponent.has(source) && usedInMainComponent.has(target);
+    const color = bothMainComponent ? (bothUsed ? '#58667f' : '#6b4040') : '#404852';
+    baseEdgeColor.set(edge, color);
+    graph.setEdgeAttribute(edge, 'color', color);
+    graph.setEdgeAttribute(edge, 'size', bothUsed ? 2 : 1);
+  });
 }
 
 function applyOptionalLayout() {
@@ -196,10 +255,7 @@ function buildNeighborMap() {
 }
 
 function escapeHtml(s) {
-  return String(s)
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;');
+  return String(s).replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
 }
 
 function resolveNodeInput(value) {
@@ -217,8 +273,7 @@ function resolveNodeInput(value) {
 }
 
 function getSuccessors(node) {
-  if (applyDirections) return graph.outboundNeighbors(node);
-  return graph.neighbors(node);
+  return applyDirections ? graph.outboundNeighbors(node) : graph.neighbors(node);
 }
 
 function findNodePath(source, target) {
@@ -257,15 +312,40 @@ function edgeKeyBetween(source, target) {
   return edges[0] || null;
 }
 
+function renderPathList() {
+  if (!currentPath.length) {
+    pathList.innerHTML = '<div class="path-empty">No path selected.</div>';
+    return;
+  }
+  pathList.innerHTML = currentPath.map((nodeId, idx) => {
+    const node = rawNodeByKey.get(nodeId);
+    const label = escapeHtml(node?.label || nodeId);
+    const path = escapeHtml(node?.path || 'unknown');
+    return '<button class="path-item" data-node-id="' + escapeHtml(nodeId) + '"><span class="path-step">' + idx + '</span><span class="path-main"><span class="path-label">' + label + '</span><span class="path-file mono">' + path + '</span></span></button>';
+  }).join('');
+  pathList.querySelectorAll('[data-node-id]').forEach((el) => {
+    el.addEventListener('click', () => {
+      const nodeId = el.getAttribute('data-node-id');
+      if (!nodeId) return;
+      selectedNode = nodeId;
+      updateInspect(nodeId);
+      hoveredNode = nodeId;
+      applyVisualState(search.value);
+    });
+  });
+}
+
 function setPath(nodePath) {
-  pathNodeSet = new Set(nodePath || []);
+  currentPath = nodePath || [];
+  pathNodeSet = new Set(currentPath);
   pathEdgeSet = new Set();
-  if (nodePath && nodePath.length > 1) {
-    for (let i = 0; i < nodePath.length - 1; i++) {
-      const edge = edgeKeyBetween(nodePath[i], nodePath[i + 1]);
+  if (currentPath.length > 1) {
+    for (let i = 0; i < currentPath.length - 1; i++) {
+      const edge = edgeKeyBetween(currentPath[i], currentPath[i + 1]);
       if (edge) pathEdgeSet.add(edge);
     }
   }
+  renderPathList();
 }
 
 function updatePathStatus(message) {
@@ -310,8 +390,7 @@ function runPathSearch() {
 }
 
 function clearPathSearch() {
-  pathNodeSet = new Set();
-  pathEdgeSet = new Set();
+  setPath(null);
   pathFromInput.value = '';
   pathToInput.value = '';
   updatePathStatus('No path selected.');
@@ -328,10 +407,36 @@ function reversePathInputs() {
   else updatePathStatus('Reversed source and sink fields.');
 }
 
+function fillMainSourceSelect() {
+  const uniquePaths = [...new Set(raw.nodes.map((n) => n.path || 'unknown'))].sort();
+  mainSourceSelect.innerHTML = uniquePaths.map((path) => '<option value="' + escapeHtml(path) + '">' + escapeHtml(path) + '</option>').join('');
+  if (currentMainPath) mainSourceSelect.value = currentMainPath;
+}
+
+function updateMainFromSelectedSource() {
+  const path = mainSourceSelect.value;
+  const candidates = raw.nodes.filter((n) => (n.path || '') === path);
+  const explicitMain = candidates.find((n) => String(n.label || '').toLowerCase() === 'main');
+  const chosen = explicitMain || candidates[0] || null;
+  if (!chosen) return;
+  currentMainKey = chosen.key;
+  currentMainPath = chosen.path || '';
+  recomputeMainComponent();
+  refreshBaseNodeStyles();
+  reapplyBaseEdgeStyles();
+  if (selectedNode === null) selectedNode = currentMainKey;
+  applyVisualState(search.value);
+  updateInspect(selectedNode || currentMainKey);
+  selection.textContent = 'Main source: ' + currentMainPath + ' — entry node ' + graph.getNodeAttribute(currentMainKey, 'label');
+}
+
+recomputeMainComponent();
 seedColumnLayout();
+refreshBaseNodeStyles();
 addEdges();
 applyOptionalLayout();
 buildNeighborMap();
+fillMainSourceSelect();
 
 const sigma = new Sigma(graph, container, {
   minCameraRatio: 0.2,
@@ -340,45 +445,22 @@ const sigma = new Sigma(graph, container, {
   labelGridCellSize: 120,
   renderEdgeLabels: false,
   allowInvalidContainer: false,
-  labelColor: { color: '#ffffff' },
+  itemSizesReference: 'screen',
+  labelColor: { color: '#eef2ff' },
+  defaultDrawNodeHover: () => {},
   defaultDrawNodeLabel: (context, data) => {
     const size = data.size || 1;
     if (size < 6 && !data.forceLabel) return;
     const label = String(data.label || '');
     const x = data.x + size + 6;
     const y = data.y;
-    if (hoveredNode === data.key || pathNodeSet.has(data.key)) {
-      const paddingX = 8;
-      const boxH = 20;
-      context.font = '600 12px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace';
-      const width = context.measureText(label).width;
-      const boxX = x - paddingX;
-      const boxY = y - 12;
-      const boxW = width + paddingX * 2;
-      const r = 10;
-      context.fillStyle = pathNodeSet.has(data.key) ? '#ffe082' : '#ffffff';
-      context.beginPath();
-      context.moveTo(boxX + r, boxY);
-      context.lineTo(boxX + boxW - r, boxY);
-      context.quadraticCurveTo(boxX + boxW, boxY, boxX + boxW, boxY + r);
-      context.lineTo(boxX + boxW, boxY + boxH - r);
-      context.quadraticCurveTo(boxX + boxW, boxY + boxH, boxX + boxW - r, boxY + boxH);
-      context.lineTo(boxX + r, boxY + boxH);
-      context.quadraticCurveTo(boxX, boxY + boxH, boxX, boxY + boxH - r);
-      context.lineTo(boxX, boxY + r);
-      context.quadraticCurveTo(boxX, boxY, boxX + r, boxY);
-      context.closePath();
-      context.shadowColor = 'rgba(255,255,255,0.18)';
-      context.shadowBlur = 18;
-      context.fill();
-      context.shadowBlur = 0;
-      context.fillStyle = '#000000';
-      context.fillText(label, x, y + 4);
-      return;
-    }
-    context.font = '500 12px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace';
-    context.fillStyle = '#ffffff';
+    const highlighted = hoveredNode === data.key || pathNodeSet.has(data.key);
+    context.font = (highlighted ? '600 ' : '500 ') + '12px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace';
+    context.fillStyle = highlighted ? (pathNodeSet.has(data.key) ? '#ffe082' : '#ffffff') : '#d8deeb';
+    context.shadowColor = highlighted ? 'rgba(0,0,0,0.55)' : 'rgba(0,0,0,0.35)';
+    context.shadowBlur = highlighted ? 8 : 3;
     context.fillText(label, x, y + 4);
+    context.shadowBlur = 0;
   }
 });
 
@@ -390,13 +472,7 @@ function updateInspect(nodeId) {
   const attrs = graph.getNodeAttributes(nodeId);
   const outgoingList = graph.outboundNeighbors(nodeId).slice(0, 24).map((id) => graph.getNodeAttribute(id, 'label'));
   const incomingList = graph.inboundNeighbors(nodeId).slice(0, 24).map((id) => graph.getNodeAttribute(id, 'label'));
-  const status = nodeId === mainKey
-    ? 'entrypoint'
-    : deadInMainComponent.has(nodeId)
-    ? 'dead code in main component'
-    : usedInMainComponent.has(nodeId)
-    ? 'used in main component'
-    : 'outside main component';
+  const status = nodeId === currentMainKey ? 'entrypoint' : deadInMainComponent.has(nodeId) ? 'dead code in main component' : usedInMainComponent.has(nodeId) ? 'used in main component' : 'outside main component';
   const preview = sourcePreview(node);
   const startLine = node.range?.start?.line || 1;
   const range = node.range ? node.range.start.line + ':' + node.range.start.column + ' - ' + node.range.end.line + ':' + node.range.end.column : 'unknown';
@@ -408,6 +484,7 @@ function updateInspect(nodeId) {
     'visibility: ' + escapeHtml(attrs.visibility || 'unknown') + '<br>' +
     'range: ' + escapeHtml(range) + '<br>' +
     (attrs.signature ? '<span class="mono">signature: ' + escapeHtml(attrs.signature) + '</span><br>' : '') +
+    'code size: ' + estimateCodeSize(node) + ' lines<br>' +
     'status: ' + escapeHtml(status) + '<br><br>' +
     '<strong>Calls</strong>: ' + escapeHtml(outgoingList.join(', ') || 'none') + '<br><br>' +
     '<strong>Called by</strong>: ' + escapeHtml(incomingList.join(', ') || 'none') + '<br><br>' +
@@ -441,8 +518,9 @@ function applyVisualState(query = '') {
     else if (hasPath && onPath) color = '#ffd54f';
     else if (!related) color = 'rgba(255,255,255,0.14)';
     graph.setNodeAttribute(node, 'color', color);
-    graph.setNodeAttribute(node, 'size', onPath ? 16 : hoveredNode === node ? (node === mainKey ? 22 : 15) : (node === mainKey ? 18 : deadInMainComponent.has(node) ? 11 : 12));
-    graph.setNodeAttribute(node, 'forceLabel', hoveredNode === node || node === mainKey || onPath);
+    const baseSize = computeNodeSize(node);
+    graph.setNodeAttribute(node, 'size', onPath ? baseSize + 3 : hoveredNode === node ? baseSize + 2 : baseSize);
+    graph.setNodeAttribute(node, 'forceLabel', hoveredNode === node || node === currentMainKey || onPath);
   });
 
   graph.forEachEdge((edge, attrs, source, target) => {
@@ -458,6 +536,11 @@ function applyVisualState(query = '') {
   sigma.refresh();
 }
 
+function syncNodeSizeControls() {
+  sizeBaseValue.textContent = Number(nodeSizeBase).toFixed(0);
+  sizeCodeFactorValue.textContent = Number(nodeSizeCodeFactor).toFixed(3);
+}
+
 search.addEventListener('input', () => applyVisualState(search.value));
 pathGoBtn.addEventListener('click', runPathSearch);
 pathClearBtn.addEventListener('click', clearPathSearch);
@@ -470,8 +553,32 @@ directedToggle.addEventListener('change', () => {
 lineNumbersToggle.addEventListener('change', () => {
   showLineNumbers = lineNumbersToggle.checked;
   if (selectedNode) updateInspect(selectedNode);
-  else if (mainKey) updateInspect(mainKey);
+  else if (currentMainKey) updateInspect(currentMainKey);
 });
+layoutModeSelect.addEventListener('change', () => {
+  layoutMode = layoutModeSelect.value;
+  const next = new URL(window.location.href);
+  next.searchParams.set('layout', layoutMode);
+  window.location.href = next.toString();
+});
+sizeModeSelect.addEventListener('change', () => {
+  nodeSizeMode = sizeModeSelect.value;
+  refreshBaseNodeStyles();
+  applyVisualState(search.value);
+});
+sizeBaseInput.addEventListener('input', () => {
+  nodeSizeBase = Number(sizeBaseInput.value);
+  syncNodeSizeControls();
+  refreshBaseNodeStyles();
+  applyVisualState(search.value);
+});
+sizeCodeFactorInput.addEventListener('input', () => {
+  nodeSizeCodeFactor = Number(sizeCodeFactorInput.value);
+  syncNodeSizeControls();
+  refreshBaseNodeStyles();
+  applyVisualState(search.value);
+});
+recomputeMainBtn.addEventListener('click', updateMainFromSelectedSource);
 pathFromInput.addEventListener('focus', () => { focusedPathField = 'from'; syncFocusedFieldUI(); });
 pathToInput.addEventListener('focus', () => { focusedPathField = 'to'; syncFocusedFieldUI(); });
 pathFromInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') runPathSearch(); });
@@ -493,11 +600,17 @@ sigma.on('leaveNode', () => {
   applyVisualState(search.value);
 });
 
+layoutModeSelect.value = layoutMode;
+sizeModeSelect.value = nodeSizeMode;
+sizeBaseInput.value = String(nodeSizeBase);
+sizeCodeFactorInput.value = String(nodeSizeCodeFactor);
+syncNodeSizeControls();
 syncFocusedFieldUI();
+renderPathList();
 applyVisualState();
 updatePathStatus('No path selected. Focus source or sink, then click a node to assign it.');
-if (mainKey) {
-  selectedNode = mainKey;
-  updateInspect(mainKey);
+if (currentMainKey) {
+  selectedNode = currentMainKey;
+  updateInspect(currentMainKey);
 }
 `;
