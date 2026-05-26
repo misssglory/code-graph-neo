@@ -1,0 +1,16 @@
+{
+  "name": "codegraph-bun",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "bun --hot src/server.ts",
+    "start": "bun src/server.ts"
+  },
+  "dependencies": {
+    "graphology": "^0.26.0",
+    "sigma": "^3.0.0"
+  },
+  "devDependencies": {
+    "bun-types": "latest"
+  }
+}
