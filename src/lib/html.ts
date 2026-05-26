@@ -1,5 +1,5 @@
-import type { GraphData } from './types';
-import { clientCode } from './client';
+import type { GraphData } from './types.ts';
+import { clientCode } from './client.ts';
 
 export function renderHtml(graphData: GraphData): string {
   return `<!doctype html>
@@ -23,7 +23,7 @@ export function renderHtml(graphData: GraphData): string {
     }
     * { box-sizing: border-box; }
     body { margin: 0; background: var(--bg); color: var(--text); font-family: Inter, ui-sans-serif, system-ui, sans-serif; }
-    .app { display: grid; grid-template-columns: 320px 1fr; min-height: 100vh; }
+    .app { display: grid; grid-template-columns: 360px 1fr; min-height: 100vh; }
     .sidebar { background: var(--panel); border-right: 1px solid var(--border); padding: 16px; overflow: auto; }
     .stage { position: relative; min-height: 100vh; }
     h1 { margin: 0 0 8px; font-size: 20px; }
@@ -40,8 +40,8 @@ export function renderHtml(graphData: GraphData): string {
       position: absolute;
       right: 16px;
       top: 16px;
-      width: min(430px, calc(100% - 32px));
-      background: rgba(18, 18, 18, 0.92);
+      width: min(520px, calc(100% - 32px));
+      background: rgba(18, 18, 18, 0.94);
       border: 1px solid var(--border);
       border-radius: 14px;
       padding: 12px 14px;
@@ -49,6 +49,8 @@ export function renderHtml(graphData: GraphData): string {
       line-height: 1.45;
       backdrop-filter: blur(10px);
       box-shadow: 0 12px 30px rgba(0,0,0,0.35);
+      max-height: calc(100vh - 32px);
+      overflow: auto;
     }
     .inspect strong { color: var(--text); }
     .legend-row { display: flex; gap: 8px; align-items: center; margin-top: 10px; color: var(--muted); font-size: 13px; }
@@ -64,14 +66,15 @@ export function renderHtml(graphData: GraphData): string {
   <div class="app">
     <aside class="sidebar">
       <h1>Code graph</h1>
-      <p>This viewer parses the JSON graph dump, renders it with Sigma.js, and marks everything not reachable from <strong>main</strong> as unreachable.</p>
+      <p>This viewer parses the JSON graph dump, renders it with Sigma.js, and can search labels, filenames, signatures, and file contents loaded from the Rust project.</p>
       <div class="chips">
         <span class="chip mainchip">main: ${graphData.mainKey ?? 'not found'}</span>
         <span class="chip reachchip">reachable: ${graphData.reachable.length}</span>
         <span class="chip unreachchip">unreachable: ${graphData.unreachable.length}</span>
         <span class="chip">nodes: ${graphData.nodes.length}</span>
+        <span class="chip">files: ${graphData.files.length}</span>
       </div>
-      <input id="search" class="search" placeholder="Search label or path" />
+      <input id="search" class="search" placeholder="Search labels, files, signatures, or code" />
       <div class="legend-row"><span class="swatch mainswatch"></span> entrypoint</div>
       <div class="legend-row"><span class="swatch reachswatch"></span> reachable from main</div>
       <div class="legend-row"><span class="swatch unreachswatch"></span> unreachable from main</div>
