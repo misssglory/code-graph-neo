@@ -32,6 +32,34 @@ function rgba(hex, alpha) {
   const { r, g, b } = hexToRgb(hex);
   return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 }
+function escapeRegExp(text) {
+  return String(text).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+function parseFileLineQuery(query) {
+  const match = query.match(/^(.+):(\d+)$/);
+  if (!match) return null;
+  const filePart = match[1].trim().toLowerCase();
+  const line = Number(match[2]);
+  if (!filePart || !Number.isFinite(line) || line < 1) return null;
+  const normalized = filePart.endsWith('.rs') ? filePart : `${filePart}.rs`;
+  return { rawFile: filePart, normalizedFile: normalized, line };
+}
+function nodeScoreForHint(node, query) {
+  const q = query.trim().toLowerCase();
+  if (!q) return -Infinity;
+  const label = String(node.label || '').toLowerCase();
+  const path = String(node.path || '').toLowerCase();
+  const signature = String(node.signature || '').toLowerCase();
+  let score = -Infinity;
+  const candidates = [label, path, signature];
+  for (const text of candidates) {
+    const idx = text.indexOf(q);
+    if (idx < 0) continue;
+    const candidateScore = (idx === 0 ? 220 : 140 - Math.min(idx, 100)) + Math.max(0, 80 - text.length);
+    if (candidateScore > score) score = candidateScore;
+  }
+  return score;
+}
 function drawArrowHead(context, x1, y1, x2, y2, color, size) {
   const angle = Math.atan2(y2 - y1, x2 - x1);
   const len = Math.max(7, size * 3.2);
@@ -345,6 +373,17 @@ export function createApp(bootstrap) {
 
   function matchesQuery(node, attrs, q) {
     if (!q) return true;
+    const fileLineQuery = parseFileLineQuery(q);
+    if (fileLineQuery) {
+      const path = String(attrs.path || '').toLowerCase();
+      const range = node.range || null;
+      const lineInRange = Boolean(range && range.start?.line <= fileLineQuery.line && range.end?.line >= fileLineQuery.line);
+      const fileMatches = path.includes(fileLineQuery.normalizedFile) || path.endsWith(fileLineQuery.rawFile);
+      if (lineInRange && fileMatches) return true;
+      const fileContent = state.fileContentByPath.get(attrs.path || '') || '';
+      const fileLineRegex = new RegExp(`${escapeRegExp(fileLineQuery.normalizedFile)}:${fileLineQuery.line}\\b`, 'i');
+      return fileLineRegex.test(String(node.sourceSnippet || '')) || fileLineRegex.test(fileContent);
+    }
     const fileContent = state.fileContentByPath.get(attrs.path || '') || '';
     return attrs.label.toLowerCase().includes(q)
       || String(attrs.path || '').toLowerCase().includes(q)
@@ -352,7 +391,32 @@ export function createApp(bootstrap) {
       || fileContent.toLowerCase().includes(q)
       || String(node.sourceSnippet || '').toLowerCase().includes(q);
   }
+  function updateSearchHints(query = '') {
+    if (!dom.searchHints) return;
+    const q = query.trim();
+    if (!q) {
+      dom.searchHints.innerHTML = '';
+      return;
+    }
+    const candidates = state.raw.nodes
+      .map((node) => ({ node, score: nodeScoreForHint(node, q) }))
+      .filter((item) => Number.isFinite(item.score))
+      .sort((a, b) => b.score - a.score || a.node.label.localeCompare(b.node.label))
+      .slice(0, 16);
+    const seen = new Set();
+    const options = [];
+    for (const { node } of candidates) {
+      const label = node.label || node.key;
+      const path = node.path || 'unknown';
+      const value = `${label} — ${path}`;
+      if (seen.has(value)) continue;
+      seen.add(value);
+      options.push(`<option value="${escapeHtml(value)}"></option>`);
+    }
+    dom.searchHints.innerHTML = options.join('');
+  }
   function applyVisualState(query = '') {
+    updateSearchHints(query);
     const q = query.trim().toLowerCase();
     const hoverSet = hoveredNode ? state.neighbors.get(hoveredNode) || new Set([hoveredNode]) : null;
     const hasPath = pathNodeSet.size > 0;

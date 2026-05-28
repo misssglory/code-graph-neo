@@ -145,7 +145,8 @@ export function renderHtml(graphData: GraphData, config: any = {}): string {
           <section data-tab-panel="code-search">
             <div class="section-card">
               <h2>Code search</h2>
-              <input id="search" class="search" placeholder="Search labels, files, signatures, or code" />
+              <input id="search" class="search" list="search-hints" placeholder="Search labels, files, signatures, code, or file:line (e.g. state:55)" />
+              <datalist id="search-hints"></datalist>
               <div id="selection" class="meta">Focus source or sink, then click a node to assign it. The focused field gets the clicked node. After a path appears, focus the list and use arrows or Ctrl-J/Ctrl-K, then Enter.</div>
             </div>
             <div class="section-card">
