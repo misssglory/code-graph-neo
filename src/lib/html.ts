@@ -116,6 +116,11 @@ export function renderHtml(graphData: GraphData, config: any = {}): string {
     .mutation-hint-list { display: grid; gap: 6px; max-height: 220px; overflow: auto; }
     .mutation-hint-row { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: baseline; font-family: var(--mono); font-size: 12px; color: #dce2ef; }
     .mutation-hint-empty { color: var(--muted); font-size: 12px; }
+    .bulk-match-annotations { margin-top: 10px; border: 1px solid var(--border); border-radius: 12px; background: rgba(255,255,255,0.035); padding: 10px; }
+    .bulk-match-title { color: var(--muted); font-size: 12px; margin-bottom: 8px; }
+    .bulk-match-list { display: grid; gap: 6px; max-height: 220px; overflow: auto; }
+    .bulk-match-row { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: baseline; font-family: var(--mono); font-size: 12px; color: #dce2ef; }
+    .bulk-match-row mark { color: #081014; background: var(--path); border-radius: 4px; padding: 1px 4px; }
     [hidden] { display: none !important; }
     .app[data-sidebar-collapsed="true"] .right-pane-wrap { width: 56px !important; height: 56px !important; }
     .app[data-sidebar-collapsed="true"] .right-pane-resize-corner { display: none; }
@@ -189,9 +194,10 @@ export function renderHtml(graphData: GraphData, config: any = {}): string {
           <section data-tab-panel="bulk-text" hidden>
             <div class="section-card">
               <h2>Bulk text selection</h2>
-              <textarea id="bulk-text-input" class="textarea-input" placeholder="Paste text here. Every word is resolved as a graph node name, key, or exact label."></textarea>
+              <textarea id="bulk-text-input" class="textarea-input" placeholder="Paste text here. Words, file stems, and file:line forms are resolved as graph nodes. Separators like :: and . are considered word boundaries."></textarea>
               <div class="row" style="margin-top:8px;"><button id="bulk-add" class="btn">Add text nodes (+0 nodes · 0 lines)</button><button id="bulk-remove" class="btn">Remove text nodes (-0 nodes · 0 lines)</button></div>
               <div id="bulk-status" class="status-box">No text nodes resolved yet.</div>
+              <div id="bulk-match-annotations" class="bulk-match-annotations"><div class="mutation-hint-empty">No matched text parts yet.</div></div>
               <div class="mutation-hints"><div id="bulk-add-hints"></div><div id="bulk-remove-hints"></div></div>
             </div>
           </section>

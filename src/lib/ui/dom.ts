@@ -20,6 +20,7 @@ export function createDom() {
     bulkAddBtn: document.getElementById('bulk-add'),
     bulkRemoveBtn: document.getElementById('bulk-remove'),
     bulkStatus: document.getElementById('bulk-status'),
+    bulkMatchAnnotations: document.getElementById('bulk-match-annotations'),
     bulkAddHints: document.getElementById('bulk-add-hints'),
     bulkRemoveHints: document.getElementById('bulk-remove-hints'),
     selectedCopyBtn: document.getElementById('selected-copy'),
