@@ -26,6 +26,7 @@ export function createDom() {
     pathReverseBtn: document.getElementById('path-reverse'),
     pathStatus: document.getElementById('path-status'),
     pathSelectionSummary: document.getElementById('path-selection-summary'),
+    pathFoundList: document.getElementById('path-found-list'),
     pathList: document.getElementById('path-list'),
     pathCodeView: document.getElementById('path-code-view'),
     pathCopyBtn: document.getElementById('path-copy-selected'),
