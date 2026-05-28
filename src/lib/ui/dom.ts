@@ -5,6 +5,7 @@ export function createDom() {
     inspect: document.getElementById('inspect'),
     selection: document.getElementById('selection'),
     search: document.getElementById('search'),
+    searchHints: document.getElementById('search-hints'),
     pathFromInput: document.getElementById('path-from'),
     pathToInput: document.getElementById('path-to'),
     pathGoBtn: document.getElementById('path-go'),
