@@ -68,6 +68,7 @@ export function createApp(bootstrap) {
   let nodeSizeCodeFactor = Number(graphConfig.node_size_code_factor ?? 0.015);
   let paneTransparency = Number(uiConfig.pane_transparency ?? 0.58);
   let currentPath = [];
+  let pathSelectedNodeSet = new Set();
   let pathNodeSet = new Set();
   let pathEdgeSet = new Set();
   let pathCursorIndex = -1;
@@ -164,11 +165,25 @@ export function createApp(bootstrap) {
       const node = state.rawNodeByKey.get(nodeId);
       const fileColor = fileColorByPath.get(node?.path || '') || '#8f9bb3';
       const selected = idx === pathCursorIndex ? 'true' : 'false';
-      return '<button class="path-item" role="option" aria-selected="' + selected + '" data-selected="' + selected + '" data-node-id="' + escapeHtml(nodeId) + '" data-index="' + idx + '"><span class="path-step">' + idx + '</span><span class="path-main"><span class="path-label">' + escapeHtml(node?.label || nodeId) + '</span><span class="path-file mono"><span class="selection-accent"><span class="selection-dot" style="background:' + escapeHtml(fileColor) + ';"></span><span style="color:' + escapeHtml(fileColor) + '">' + escapeHtml(node?.path || 'unknown') + '</span></span></span></span></button>';
+      const codeLines = estimateCodeSize(state, node || {});
+      const showCode = pathSelectedNodeSet.has(nodeId) ? 'checked' : '';
+      return '<button class="path-item" role="option" aria-selected="' + selected + '" data-selected="' + selected + '" data-node-id="' + escapeHtml(nodeId) + '" data-index="' + idx + '"><span class="path-step">' + idx + '</span><span class="path-main"><span class="path-label">' + escapeHtml(node?.label || nodeId) + '</span><span class="path-file mono"><span class="selection-accent"><span class="selection-dot" style="background:' + escapeHtml(fileColor) + ';"></span><span style="color:' + escapeHtml(fileColor) + '">' + escapeHtml(node?.path || 'unknown') + '</span></span></span><span class="path-entity-meta mono">' + codeLines + ' lines of code</span><label class="checkbox-row"><input type="checkbox" data-path-code-toggle="' + escapeHtml(nodeId) + '" ' + showCode + ' />Include code block</label></span></button>';
     }).join('');
     dom.pathList.querySelectorAll('[data-node-id]').forEach((el) => {
       el.addEventListener('click', () => activatePathRow(Number(el.getAttribute('data-index') || '0')));
     });
+    dom.pathList.querySelectorAll('[data-path-code-toggle]').forEach((el) => {
+      el.addEventListener('click', (event) => event.stopPropagation());
+      el.addEventListener('change', () => {
+        const nodeId = el.getAttribute('data-path-code-toggle');
+        if (!nodeId) return;
+        if (el.checked) pathSelectedNodeSet.add(nodeId);
+        else pathSelectedNodeSet.delete(nodeId);
+        updatePathSelectionSummary();
+        renderPathCodeView();
+      });
+    });
+    updatePathSelectionSummary();
   }
 
   function activatePathRow(index) {
@@ -204,6 +219,7 @@ export function createApp(bootstrap) {
 
   function setPath(nodePath) {
     currentPath = nodePath || [];
+    pathSelectedNodeSet = new Set(currentPath);
     pathNodeSet = new Set(currentPath);
     pathEdgeSet = new Set();
     if (currentPath.length > 1) {
@@ -223,7 +239,12 @@ export function createApp(bootstrap) {
       dom.pathCodeView.innerHTML = '<div class="path-empty">No path code view available.</div>';
       return;
     }
-    dom.pathCodeView.innerHTML = currentPath.map((nodeId, idx) => {
+    const selectedPath = currentPath.filter((nodeId) => pathSelectedNodeSet.has(nodeId));
+    if (!selectedPath.length) {
+      dom.pathCodeView.innerHTML = '<div class="path-empty">No selected path code blocks.</div>';
+      return;
+    }
+    dom.pathCodeView.innerHTML = selectedPath.map((nodeId, idx) => {
       const node = state.rawNodeByKey.get(nodeId);
       const fileName = node?.path || 'unknown';
       const preview = sourcePreview(state, node || {});
@@ -233,6 +254,29 @@ export function createApp(bootstrap) {
       return '<div><div class="path-code-file">' + escapeHtml(String(idx)) + '. ' + escapeHtml(node?.label || nodeId) + '</div>' +
         renderCodeBlock(Prism, code, startLine, showLineNumbers) + '</div>';
     }).join('');
+  }
+  function updatePathSelectionSummary() {
+    const selectedPath = currentPath.filter((nodeId) => pathSelectedNodeSet.has(nodeId));
+    const totalLines = selectedPath.reduce((sum, nodeId) => {
+      const node = state.rawNodeByKey.get(nodeId);
+      return sum + estimateCodeSize(state, node || {});
+    }, 0);
+    dom.pathSelectionSummary.textContent = 'Selected: ' + selectedPath.length + ' nodes · ' + totalLines + ' total lines.';
+  }
+  async function copySelectedPathCodeBlocks() {
+    const selectedPath = currentPath.filter((nodeId) => pathSelectedNodeSet.has(nodeId));
+    if (!selectedPath.length) {
+      updatePathStatus('No selected nodes to copy.');
+      return;
+    }
+    const text = selectedPath.map((nodeId) => {
+      const node = state.rawNodeByKey.get(nodeId);
+      const fileName = node?.path || 'unknown';
+      const preview = sourcePreview(state, node || {}) || 'No source snippet available';
+      return '// file: ' + fileName + '\n' + preview;
+    }).join('\n\n');
+    await navigator.clipboard.writeText(text);
+    updatePathStatus('Copied ' + selectedPath.length + ' selected code block(s) to clipboard.');
   }
 
   function updatePathStatus(message) { dom.pathStatus.textContent = message + '  Keyboard: ↑/↓ or Ctrl-J/Ctrl-K, Enter selects.'; }
@@ -499,6 +543,7 @@ export function createApp(bootstrap) {
     updatePathStatus('No path selected.');
     applyVisualState(dom.search.value);
   });
+  dom.pathCopyBtn.addEventListener('click', () => { copySelectedPathCodeBlocks().catch(() => updatePathStatus('Clipboard copy failed. Browser denied clipboard access.')); });
   dom.pathReverseBtn.addEventListener('click', () => {
     const from = dom.pathFromInput.value;
     dom.pathFromInput.value = dom.pathToInput.value;

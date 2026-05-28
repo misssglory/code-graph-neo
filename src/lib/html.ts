@@ -93,6 +93,7 @@ export function renderHtml(graphData: GraphData, config: any = {}): string {
     .path-main { display: grid; gap: 4px; }
     .path-label { font-size: 13px; color: #ffffff; }
     .path-file { font-size: 11px; color: var(--muted); }
+    .path-entity-meta { font-size: 11px; color: var(--muted); }
     .selection-accent { display: inline-flex; align-items: center; gap: 8px; }
     .selection-dot { width: 8px; height: 8px; border-radius: 999px; flex: 0 0 auto; }
     .path-empty { color: var(--muted); font-size: 13px; }
@@ -195,6 +196,8 @@ export function renderHtml(graphData: GraphData, config: any = {}): string {
                 <div class="checkbox-row"><input id="directed-toggle" type="checkbox" checked /><label for="directed-toggle">Apply edge directions</label></div>
                 <div class="row"><button id="path-go" class="btn">Find path</button><button id="path-reverse" class="btn">Reverse</button><button id="path-clear" class="btn">Clear</button></div>
                 <div id="path-status" class="status-box">No path selected.</div>
+                <div id="path-selection-summary" class="status-box">Selected: 0 nodes · 0 total lines.</div>
+                <div class="row"><button id="path-copy-selected" class="btn">Copy selected code blocks</button></div>
                 <div id="path-list" class="path-list"></div>
                 <div id="path-code-view" class="path-code-view"></div>
               </div>
