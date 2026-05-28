@@ -356,6 +356,8 @@ export function createApp(bootstrap) {
     const q = query.trim().toLowerCase();
     const hoverSet = hoveredNode ? state.neighbors.get(hoveredNode) || new Set([hoveredNode]) : null;
     const hasPath = pathNodeSet.size > 0;
+    const selectedIncomingColor = '#7ec8ff';
+    const selectedOutgoingColor = '#ff9f7e';
     graph.forEachNode((node, attrs) => {
       const rawNode = state.rawNodeByKey.get(node);
       const matches = rawNode ? matchesQuery(rawNode, attrs, q) : true;
@@ -379,7 +381,13 @@ export function createApp(bootstrap) {
       if (hidden) return;
       const active = !hoverSet || (hoverSet.has(source) && hoverSet.has(target));
       const onPath = pathEdgeSet.has(edge);
-      graph.setEdgeAttribute(edge, 'color', onPath ? '#ffd54f' : active ? state.baseEdgeColor.get(edge) : 'rgba(255,255,255,0.05)');
+      const isIncomingSelectedEdge = selectedNode && target === selectedNode;
+      const isOutgoingSelectedEdge = selectedNode && source === selectedNode;
+      let edgeColor = active ? state.baseEdgeColor.get(edge) : 'rgba(255,255,255,0.05)';
+      if (isIncomingSelectedEdge) edgeColor = selectedIncomingColor;
+      if (isOutgoingSelectedEdge) edgeColor = selectedOutgoingColor;
+      if (onPath) edgeColor = '#ffd54f';
+      graph.setEdgeAttribute(edge, 'color', edgeColor);
       graph.setEdgeAttribute(edge, 'size', onPath ? 4 : hoveredNode && active ? 3 : 2);
     });
     sigma.refresh();
