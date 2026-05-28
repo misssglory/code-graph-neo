@@ -96,6 +96,8 @@ export function renderHtml(graphData: GraphData, config: any = {}): string {
     .selection-accent { display: inline-flex; align-items: center; gap: 8px; }
     .selection-dot { width: 8px; height: 8px; border-radius: 999px; flex: 0 0 auto; }
     .path-empty { color: var(--muted); font-size: 13px; }
+    .path-code-view { display: grid; gap: 10px; margin-top: 12px; }
+    .path-code-file { margin: 0; color: #d0d8e8; font-family: var(--mono); font-size: 12px; }
     [hidden] { display: none !important; }
     .app[data-sidebar-collapsed="true"] .right-pane-wrap { width: 56px !important; height: 56px !important; }
     .app[data-sidebar-collapsed="true"] .right-pane-resize-corner { display: none; }
@@ -194,6 +196,7 @@ export function renderHtml(graphData: GraphData, config: any = {}): string {
                 <div class="row"><button id="path-go" class="btn">Find path</button><button id="path-reverse" class="btn">Reverse</button><button id="path-clear" class="btn">Clear</button></div>
                 <div id="path-status" class="status-box">No path selected.</div>
                 <div id="path-list" class="path-list"></div>
+                <div id="path-code-view" class="path-code-view"></div>
               </div>
             </div>
           </section>

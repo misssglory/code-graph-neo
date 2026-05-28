@@ -214,6 +214,25 @@ export function createApp(bootstrap) {
     }
     pathCursorIndex = currentPath.length ? 0 : -1;
     renderPathList();
+    renderPathCodeView();
+  }
+
+  function renderPathCodeView() {
+    if (!dom.pathCodeView) return;
+    if (!currentPath.length) {
+      dom.pathCodeView.innerHTML = '<div class="path-empty">No path code view available.</div>';
+      return;
+    }
+    dom.pathCodeView.innerHTML = currentPath.map((nodeId, idx) => {
+      const node = state.rawNodeByKey.get(nodeId);
+      const fileName = node?.path || 'unknown';
+      const preview = sourcePreview(state, node || {});
+      const startLine = node?.range?.start?.line || 1;
+      const header = '// file: ' + fileName;
+      const code = header + '\n' + (preview || 'No source snippet available');
+      return '<div><div class="path-code-file">' + escapeHtml(String(idx)) + '. ' + escapeHtml(node?.label || nodeId) + '</div>' +
+        renderCodeBlock(Prism, code, startLine, showLineNumbers) + '</div>';
+    }).join('');
   }
 
   function updatePathStatus(message) { dom.pathStatus.textContent = message + '  Keyboard: ↑/↓ or Ctrl-J/Ctrl-K, Enter selects.'; }
@@ -495,7 +514,7 @@ export function createApp(bootstrap) {
     else updatePathStatus(applyDirections ? 'Directed traversal enabled.' : 'Ignoring edge direction.');
   });
   dom.renderEdgeDirectionToggle.addEventListener('change', () => { renderEdgeDirection = dom.renderEdgeDirectionToggle.checked; sigma.refresh(); });
-  dom.lineNumbersToggle.addEventListener('change', () => { showLineNumbers = dom.lineNumbersToggle.checked; if (selectedNode) updateInspect(selectedNode); });
+  dom.lineNumbersToggle.addEventListener('change', () => { showLineNumbers = dom.lineNumbersToggle.checked; if (selectedNode) updateInspect(selectedNode); renderPathCodeView(); });
   dom.layoutModeSelect.addEventListener('change', () => {
     layoutMode = dom.layoutModeSelect.value;
     const next = new URL(window.location.href);
@@ -559,6 +578,7 @@ export function createApp(bootstrap) {
   applyFloatingPaneSize();
   attachRightPaneResize();
   renderPathList();
+  renderPathCodeView();
   updatePathStatus('No path selected. Focus source or sink, then click a node to assign it.');
   if (selectedNode) updateInspect(selectedNode);
   applyVisualState();

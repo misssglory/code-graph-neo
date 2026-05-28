@@ -12,6 +12,7 @@ export function createDom() {
     pathReverseBtn: document.getElementById('path-reverse'),
     pathStatus: document.getElementById('path-status'),
     pathList: document.getElementById('path-list'),
+    pathCodeView: document.getElementById('path-code-view'),
     directedToggle: document.getElementById('directed-toggle'),
     renderEdgeDirectionToggle: document.getElementById('render-edge-direction-toggle'),
     lineNumbersToggle: document.getElementById('line-numbers-toggle'),
