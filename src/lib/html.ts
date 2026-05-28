@@ -60,6 +60,10 @@ export function renderHtml(graphData: GraphData, config: any = {}): string {
     .unreachchip { color: var(--unreach); }
     .outsidechip { color: var(--outside); }
     .search, .text-input, .select-input, .range-input { width: 100%; padding: 10px 12px; border-radius: 10px; background: rgba(255,255,255,0.04); border: 1px solid var(--border); color: var(--text); font-family: var(--mono); }
+    .search-hints-overlay { width: 100%; margin-top: 8px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.15); background: rgba(0,0,0,0.95); overflow: hidden; }
+    .hint-row { width: 100%; display: grid; grid-template-columns: 1fr auto; gap: 8px; text-align: left; border: 0; border-bottom: 1px solid rgba(255,255,255,0.07); background: transparent; color: #dce2ef; padding: 8px 10px; font-family: var(--mono); cursor: pointer; }
+    .hint-row:last-child { border-bottom: 0; }
+    .hint-row:hover { background: rgba(255,255,255,0.06); }
     .select-input option { background: #050608; color: #ffffff; }
     .text-input[data-focused="true"] { border-color: var(--focus); box-shadow: 0 0 0 1px var(--focus) inset; }
     .meta { margin-top: 12px; color: var(--muted); font-size: 13px; line-height: 1.45; }
@@ -140,18 +144,31 @@ export function renderHtml(graphData: GraphData, config: any = {}): string {
           <button class="tab-btn" data-tab-button="code-search" data-active="true">code search</button>
           <button class="tab-btn" data-tab-button="settings" data-active="false">settings</button>
           <button class="tab-btn" data-tab-button="find-path" data-active="false">find path</button>
+          <button class="tab-btn" data-tab-button="selected-nodes" data-active="false">selected nodes</button>
         </div>
         <div class="sidebar-content">
           <section data-tab-panel="code-search">
             <div class="section-card">
               <h2>Code search</h2>
-              <input id="search" class="search" list="search-hints" placeholder="Search labels, files, signatures, code, or file:line (e.g. state:55)" />
+              <input id="search" class="search" placeholder="Search labels, files, signatures, code, or file:line (e.g. state:55)" />
               <datalist id="search-hints"></datalist>
+              <div id="search-hints-overlay" class="search-hints-overlay" hidden></div>
               <div id="selection" class="meta">Focus source or sink, then click a node to assign it. The focused field gets the clicked node. After a path appears, focus the list and use arrows or Ctrl-J/Ctrl-K, then Enter.</div>
             </div>
             <div class="section-card">
               <h2>Node info</h2>
               <div id="inspect" class="inspect">Ready.</div>
+            </div>
+          </section>
+          <section data-tab-panel="selected-nodes" hidden>
+            <div class="section-card">
+              <h2>Selected state</h2>
+              <div class="row"><button id="selected-add-node" class="btn">Add selected node</button><button id="selected-add-incoming" class="btn">Add incoming</button><button id="selected-add-outgoing" class="btn">Add outgoing</button></div>
+              <div class="row" style="margin-top:8px;"><button id="selected-remove-node" class="btn">Remove selected node</button><button id="selected-remove-incoming" class="btn">Remove incoming</button><button id="selected-remove-outgoing" class="btn">Remove outgoing</button></div>
+              <div class="row" style="margin-top:8px;"><button id="selected-add-path" class="btn">Add current path</button><button id="selected-remove-path" class="btn">Remove current path</button><button id="selected-copy" class="btn">Copy selected code</button></div>
+              <div id="selected-status" class="status-box">No selected-state nodes yet.</div>
+              <div id="selected-list" class="path-list"></div>
+              <div id="selected-code-view" class="path-code-view"></div>
             </div>
           </section>
           <section data-tab-panel="settings" hidden>

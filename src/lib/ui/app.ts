@@ -100,6 +100,7 @@ export function createApp(bootstrap) {
   let pathNodeSet = new Set();
   let pathEdgeSet = new Set();
   let pathCursorIndex = -1;
+  let selectedStateNodeSet = new Set();
   let layoutMode = new URL(window.location.href).searchParams.get('layout') || graphConfig.layout || 'columns';
   let mainComponentFocusMode = false;
   let rightPaneWidth = Number(uiConfig.pane_width ?? 420);
@@ -209,6 +210,7 @@ export function createApp(bootstrap) {
         else pathSelectedNodeSet.delete(nodeId);
         updatePathSelectionSummary();
         renderPathCodeView();
+  updateSelectedStateViews();
       });
     });
     updatePathSelectionSummary();
@@ -259,6 +261,7 @@ export function createApp(bootstrap) {
     pathCursorIndex = currentPath.length ? 0 : -1;
     renderPathList();
     renderPathCodeView();
+  updateSelectedStateViews();
   }
 
   function renderPathCodeView() {
@@ -391,6 +394,23 @@ export function createApp(bootstrap) {
       || fileContent.toLowerCase().includes(q)
       || String(node.sourceSnippet || '').toLowerCase().includes(q);
   }
+  function updateSelectedStateViews() {
+    const items = [...selectedStateNodeSet];
+    dom.selectedStatus.textContent = items.length ? ('Selected-state nodes: ' + items.length) : 'No selected-state nodes yet.';
+    dom.selectedList.innerHTML = items.map((nodeId, idx) => {
+      const node = state.rawNodeByKey.get(nodeId);
+      const fileColor = fileColorByPath.get(node?.path || '') || '#8f9bb3';
+      return '<button class="path-item" data-selected-node="' + escapeHtml(nodeId) + '"><span class="path-step">' + idx + '</span><span class="path-main"><span class="path-label">' + escapeHtml(node?.label || nodeId) + '</span><span class="path-file mono" style="color:' + escapeHtml(fileColor) + '">' + escapeHtml(node?.path || 'unknown') + '</span></span></button>';
+    }).join('');
+    dom.selectedCodeView.innerHTML = items.map((nodeId, idx) => {
+      const node = state.rawNodeByKey.get(nodeId);
+      const preview = sourcePreview(state, node || {});
+      const startLine = node?.range?.start?.line || 1;
+      const code = '// file: ' + (node?.path || 'unknown') + '\n' + (preview || 'No source snippet available');
+      return '<div><div class="path-code-file">' + escapeHtml(String(idx)) + '. ' + escapeHtml(node?.label || nodeId) + '</div>' + renderCodeBlock(Prism, code, startLine, showLineNumbers) + '</div>';
+    }).join('');
+  }
+
   function updateSearchHints(query = '') {
     if (!dom.searchHints) return;
     const q = query.trim();
@@ -414,6 +434,8 @@ export function createApp(bootstrap) {
       options.push(`<option value="${escapeHtml(value)}"></option>`);
     }
     dom.searchHints.innerHTML = options.join('');
+    dom.searchHintsOverlay.innerHTML = candidates.map(({ node }) => { const fileColor = fileColorByPath.get(node.path || '') || '#8f9bb3'; return '<button class="hint-row" data-hint-node="' + escapeHtml(node.key) + '"><span>' + escapeHtml(node.label || node.key) + '</span><span style="color:' + escapeHtml(fileColor) + '">' + escapeHtml(node.path || 'unknown') + '</span></button>'; }).join('');
+    dom.searchHintsOverlay.hidden = candidates.length === 0;
   }
   function applyVisualState(query = '') {
     updateSearchHints(query);
@@ -429,9 +451,11 @@ export function createApp(bootstrap) {
       graph.setNodeAttribute(node, 'hidden', hidden);
       const related = !hoverSet || hoverSet.has(node);
       const onPath = pathNodeSet.has(node);
+      const inSelectedState = selectedStateNodeSet.has(node);
       let color = state.baseNodeColor.get(node);
       if (hidden) color = 'rgba(0,0,0,0)';
       else if (hasPath && onPath) color = '#ffd54f';
+      else if (inSelectedState) color = '#84f8ff';
       else if (!related) color = 'rgba(255,255,255,0.14)';
       graph.setNodeAttribute(node, 'color', color);
       graph.setNodeAttribute(node, 'borderAlpha', hidden ? 0 : (!related ? 0.30 : 1));
@@ -447,7 +471,9 @@ export function createApp(bootstrap) {
       const onPath = pathEdgeSet.has(edge);
       const isIncomingSelectedEdge = selectedNode && target === selectedNode;
       const isOutgoingSelectedEdge = selectedNode && source === selectedNode;
+      const bothSelectedState = selectedStateNodeSet.has(source) && selectedStateNodeSet.has(target);
       let edgeColor = active ? state.baseEdgeColor.get(edge) : 'rgba(255,255,255,0.05)';
+      if (bothSelectedState && !isIncomingSelectedEdge && !isOutgoingSelectedEdge) edgeColor = '#b48dff';
       if (isIncomingSelectedEdge) edgeColor = selectedIncomingColor;
       if (isOutgoingSelectedEdge) edgeColor = selectedOutgoingColor;
       if (onPath) edgeColor = '#ffd54f';
@@ -607,6 +633,7 @@ export function createApp(bootstrap) {
   sigma.on('afterRender', drawDirectionOverlay);
 
   dom.search.addEventListener('input', () => applyVisualState(dom.search.value));
+  dom.searchHintsOverlay.addEventListener('click', (event) => { const btn = event.target.closest('[data-hint-node]'); if (!btn) return; const nodeId = btn.getAttribute('data-hint-node'); if (!nodeId) return; dom.search.value = graph.getNodeAttribute(nodeId, 'label') || nodeId; selectedNode = nodeId; hoveredNode = nodeId; updateInspect(nodeId); dom.searchHintsOverlay.hidden = true; applyVisualState(dom.search.value); });
   dom.pathGoBtn.addEventListener('click', runPathSearch);
   dom.pathClearBtn.addEventListener('click', () => {
     setPath(null);
@@ -616,6 +643,16 @@ export function createApp(bootstrap) {
     applyVisualState(dom.search.value);
   });
   dom.pathCopyBtn.addEventListener('click', () => { copySelectedPathCodeBlocks().catch(() => updatePathStatus('Clipboard copy failed. Browser denied clipboard access.')); });
+  const mutateSelected = (mode, add) => { if (!selectedNode) return; const nodes = mode === 'node' ? [selectedNode] : (mode === 'incoming' ? graph.inboundNeighbors(selectedNode) : graph.outboundNeighbors(selectedNode)); nodes.forEach((n) => add ? selectedStateNodeSet.add(n) : selectedStateNodeSet.delete(n)); updateSelectedStateViews(); applyVisualState(dom.search.value); };
+  dom.selectedAddNodeBtn.addEventListener('click', () => mutateSelected('node', true));
+  dom.selectedAddIncomingBtn.addEventListener('click', () => mutateSelected('incoming', true));
+  dom.selectedAddOutgoingBtn.addEventListener('click', () => mutateSelected('outgoing', true));
+  dom.selectedRemoveNodeBtn.addEventListener('click', () => mutateSelected('node', false));
+  dom.selectedRemoveIncomingBtn.addEventListener('click', () => mutateSelected('incoming', false));
+  dom.selectedRemoveOutgoingBtn.addEventListener('click', () => mutateSelected('outgoing', false));
+  dom.selectedAddPathBtn.addEventListener('click', () => { currentPath.forEach((n) => selectedStateNodeSet.add(n)); updateSelectedStateViews(); applyVisualState(dom.search.value); });
+  dom.selectedRemovePathBtn.addEventListener('click', () => { currentPath.forEach((n) => selectedStateNodeSet.delete(n)); updateSelectedStateViews(); applyVisualState(dom.search.value); });
+  dom.selectedCopyBtn.addEventListener('click', async () => { const text = [...selectedStateNodeSet].map((nodeId) => { const node = state.rawNodeByKey.get(nodeId); return '// file: ' + (node?.path || 'unknown') + '\n' + (sourcePreview(state, node || {}) || 'No source snippet available'); }).join('\n\n'); await navigator.clipboard.writeText(text); dom.selectedStatus.textContent = 'Copied ' + selectedStateNodeSet.size + ' selected-state code block(s).'; });
   dom.pathReverseBtn.addEventListener('click', () => {
     const from = dom.pathFromInput.value;
     dom.pathFromInput.value = dom.pathToInput.value;
@@ -696,6 +733,7 @@ export function createApp(bootstrap) {
   attachRightPaneResize();
   renderPathList();
   renderPathCodeView();
+  updateSelectedStateViews();
   updatePathStatus('No path selected. Focus source or sink, then click a node to assign it.');
   if (selectedNode) updateInspect(selectedNode);
   applyVisualState();
