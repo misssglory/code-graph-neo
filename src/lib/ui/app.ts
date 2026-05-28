@@ -112,6 +112,25 @@ export function createApp(bootstrap) {
   let mainComponentFocusMode = false;
   let rightPaneWidth = Number(uiConfig.pane_width ?? 420);
   let rightPaneHeight = Math.max(360, Number(uiConfig.pane_height ?? (window.innerHeight - 32)));
+  let autoSelectedBySearch = null;
+
+  function jumpCameraToNode(nodeId, duration = 260) {
+    if (!graph.hasNode(nodeId)) return;
+    const x = graph.getNodeAttribute(nodeId, 'x');
+    const y = graph.getNodeAttribute(nodeId, 'y');
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+    const camera = sigma.getCamera();
+    camera.animate({ x, y, ratio: camera.getState().ratio }, { duration });
+  }
+  function selectNode(nodeId, options = {}) {
+    if (!nodeId || !graph.hasNode(nodeId)) return;
+    selectedNode = nodeId;
+    hoveredNode = nodeId;
+    updateInspect(nodeId);
+    updateSelectedMutationButtonLabels();
+    if (options.moveCamera !== false) jumpCameraToNode(nodeId);
+    applyVisualState(dom.search.value);
+  }
 
   function refreshStateForCurrentMain() { recomputeMainComponentState(state); }
   function seedColumnLayout() {
@@ -438,15 +457,23 @@ export function createApp(bootstrap) {
       const node = state.rawNodeByKey.get(nodeId);
       const fileColor = fileColorByPath.get(node?.path || '') || '#8f9bb3';
       const codeLines = estimateCodeSize(state, node || {});
-      return '<div class="path-item selected-item"><span class="path-step">' + idx + '</span><span class="path-main"><span class="path-label">' + escapeHtml(node?.label || nodeId) + '</span><span class="path-file mono"><span class="selection-accent"><span class="selection-dot" style="background:' + escapeHtml(fileColor) + ';"></span><span style="color:' + escapeHtml(fileColor) + '">' + escapeHtml(node?.path || 'unknown') + '</span></span></span><span class="path-entity-meta mono">' + codeLines + ' lines of code</span></span><button class="btn selected-remove-btn" data-selected-remove-node="' + escapeHtml(nodeId) + '">Remove node</button></div>';
+      return '<div class="path-item selected-item" data-selected-node-id="' + escapeHtml(nodeId) + '"><span class="path-step">' + idx + '</span><span class="path-main"><span class="path-label">' + escapeHtml(node?.label || nodeId) + '</span><span class="path-file mono"><span class="selection-accent"><span class="selection-dot" style="background:' + escapeHtml(fileColor) + ';"></span><span style="color:' + escapeHtml(fileColor) + '">' + escapeHtml(node?.path || 'unknown') + '</span></span></span><span class="path-entity-meta mono">' + codeLines + ' lines of code</span></span><button class="btn selected-remove-btn" data-selected-remove-node="' + escapeHtml(nodeId) + '">Remove node</button></div>';
     }).join('');
     dom.selectedList.querySelectorAll('[data-selected-remove-node]').forEach((el) => {
-      el.addEventListener('click', () => {
+      el.addEventListener('click', (event) => {
+        event.stopPropagation();
         const nodeId = el.getAttribute('data-selected-remove-node');
         if (!nodeId) return;
         selectedStateNodeSet.delete(nodeId);
         updateSelectedStateViews();
         applyVisualState(dom.search.value);
+      });
+    });
+    dom.selectedList.querySelectorAll('[data-selected-node-id]').forEach((el) => {
+      el.addEventListener('click', () => {
+        const nodeId = el.getAttribute('data-selected-node-id');
+        if (!nodeId) return;
+        selectNode(nodeId);
       });
     });
     dom.selectedCodeView.innerHTML = items.map((nodeId, idx) => {
@@ -468,6 +495,27 @@ export function createApp(bootstrap) {
     dom.selectedAddOutgoingBtn.textContent = `Add outgoing (+${outgoingToAdd})`;
     dom.selectedRemoveIncomingBtn.textContent = `Remove incoming (-${incomingToRemove})`;
     dom.selectedRemoveOutgoingBtn.textContent = `Remove outgoing (-${outgoingToRemove})`;
+  }
+  function nodeHintLine(nodeId, color) {
+    const node = state.rawNodeByKey.get(nodeId);
+    const label = node?.label || nodeId;
+    const path = node?.path || 'unknown';
+    const line = node?.range?.start?.line || 1;
+    return '<span style="color:' + escapeHtml(color) + '">• ' + escapeHtml(label) + ' — ' + escapeHtml(path) + ':' + line + '</span>';
+  }
+  function attachSelectedActionHint(button, mode, add) {
+    if (!button || !dom.selectedActionHint) return;
+    button.addEventListener('mouseenter', () => {
+      if (!selectedNode) {
+        dom.selectedActionHint.innerHTML = 'Select a node first.';
+        return;
+      }
+      const nodes = mode === 'node' ? [selectedNode] : (mode === 'incoming' ? graph.inboundNeighbors(selectedNode) : graph.outboundNeighbors(selectedNode));
+      const impacted = nodes.filter((n) => add ? !selectedStateNodeSet.has(n) : selectedStateNodeSet.has(n));
+      const color = add ? '#67db8b' : '#ff7e7e';
+      dom.selectedActionHint.innerHTML = (add ? 'Will add:\n' : 'Will remove:\n') + (impacted.length ? impacted.map((n) => nodeHintLine(n, color)).join('\n') : '<span style="color:#8f9bb3">• none</span>');
+    });
+    button.addEventListener('mouseleave', () => { dom.selectedActionHint.innerHTML = 'Hover add/remove buttons to preview impacted nodes.'; });
   }
 
   function updateSearchHints(query = '') {
@@ -540,6 +588,19 @@ export function createApp(bootstrap) {
       graph.setEdgeAttribute(edge, 'size', onPath ? 4 : hoveredNode && active ? 3 : 2);
     });
     sigma.refresh();
+    const matches = state.raw.nodes.filter((node) => {
+      const attrs = graph.getNodeAttributes(node.key);
+      return attrs && !attrs.hidden;
+    });
+    if (query.trim() && matches.length === 1) {
+      const only = matches[0].key;
+      if (autoSelectedBySearch !== only) {
+        autoSelectedBySearch = only;
+        selectNode(only);
+      }
+    } else if (!query.trim() || matches.length !== 1) {
+      autoSelectedBySearch = null;
+    }
   }
 
   function setMainFromNode(nodeId) {
@@ -692,7 +753,7 @@ export function createApp(bootstrap) {
   sigma.on('afterRender', drawDirectionOverlay);
 
   dom.search.addEventListener('input', () => applyVisualState(dom.search.value));
-  dom.searchHintsOverlay.addEventListener('click', (event) => { const btn = event.target.closest('[data-hint-node]'); if (!btn) return; const nodeId = btn.getAttribute('data-hint-node'); if (!nodeId) return; dom.search.value = graph.getNodeAttribute(nodeId, 'label') || nodeId; selectedNode = nodeId; hoveredNode = nodeId; updateInspect(nodeId); dom.searchHintsOverlay.hidden = true; applyVisualState(dom.search.value); });
+  dom.searchHintsOverlay.addEventListener('click', (event) => { const btn = event.target.closest('[data-hint-node]'); if (!btn) return; const nodeId = btn.getAttribute('data-hint-node'); if (!nodeId) return; dom.search.value = graph.getNodeAttribute(nodeId, 'label') || nodeId; dom.searchHintsOverlay.hidden = true; selectNode(nodeId); });
   dom.pathGoBtn.addEventListener('click', runPathSearch);
   dom.pathClearBtn.addEventListener('click', () => {
     foundPaths = [];
@@ -714,6 +775,11 @@ export function createApp(bootstrap) {
   dom.selectedAddPathBtn.addEventListener('click', () => { currentPath.forEach((n) => selectedStateNodeSet.add(n)); updateSelectedStateViews(); updateSelectedMutationButtonLabels(); applyVisualState(dom.search.value); });
   dom.selectedRemovePathBtn.addEventListener('click', () => { currentPath.forEach((n) => selectedStateNodeSet.delete(n)); updateSelectedStateViews(); updateSelectedMutationButtonLabels(); applyVisualState(dom.search.value); });
   dom.selectedCopyBtn.addEventListener('click', async () => { const text = [...selectedStateNodeSet].map((nodeId) => { const node = state.rawNodeByKey.get(nodeId); const preview = sourcePreview(state, node || {}) || 'No source snippet available'; const startLine = node?.range?.start?.line || 1; return '// file: ' + (node?.path || 'unknown') + '\n' + withLineNumbers(preview, startLine, showLineNumbers); }).join('\n\n'); await navigator.clipboard.writeText(text); dom.selectedStatus.textContent = 'Copied ' + selectedStateNodeSet.size + ' selected-state code block(s).'; });
+  attachSelectedActionHint(dom.selectedAddNodeBtn, 'node', true);
+  attachSelectedActionHint(dom.selectedAddIncomingBtn, 'incoming', true);
+  attachSelectedActionHint(dom.selectedAddOutgoingBtn, 'outgoing', true);
+  attachSelectedActionHint(dom.selectedRemoveIncomingBtn, 'incoming', false);
+  attachSelectedActionHint(dom.selectedRemoveOutgoingBtn, 'outgoing', false);
   dom.pathReverseBtn.addEventListener('click', () => {
     const from = dom.pathFromInput.value;
     dom.pathFromInput.value = dom.pathToInput.value;
@@ -767,12 +833,9 @@ export function createApp(bootstrap) {
   dom.pathList.setAttribute('role', 'listbox');
   dom.pathList.setAttribute('aria-label', 'Path selection list');
   sigma.on('clickNode', ({ node }) => {
-    selectedNode = node;
+    selectNode(node);
     if (mainComponentFocusMode) setMainFromNode(node);
     else assignNodeToFocusedField(node);
-    updateInspect(node);
-    updateSelectedMutationButtonLabels();
-    applyVisualState(dom.search.value);
   });
   sigma.on('enterNode', ({ node }) => { hoveredNode = node; applyVisualState(dom.search.value); });
   sigma.on('leaveNode', () => { hoveredNode = null; applyVisualState(dom.search.value); });
