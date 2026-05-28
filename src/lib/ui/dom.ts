@@ -11,7 +11,6 @@ export function createDom() {
     selectedAddNodeBtn: document.getElementById('selected-add-node'),
     selectedAddIncomingBtn: document.getElementById('selected-add-incoming'),
     selectedAddOutgoingBtn: document.getElementById('selected-add-outgoing'),
-    selectedRemoveNodeBtn: document.getElementById('selected-remove-node'),
     selectedRemoveIncomingBtn: document.getElementById('selected-remove-incoming'),
     selectedRemoveOutgoingBtn: document.getElementById('selected-remove-outgoing'),
     selectedAddPathBtn: document.getElementById('selected-add-path'),

@@ -164,7 +164,7 @@ export function renderHtml(graphData: GraphData, config: any = {}): string {
             <div class="section-card">
               <h2>Selected state</h2>
               <div class="row"><button id="selected-add-node" class="btn">Add selected node</button><button id="selected-add-incoming" class="btn">Add incoming</button><button id="selected-add-outgoing" class="btn">Add outgoing</button></div>
-              <div class="row" style="margin-top:8px;"><button id="selected-remove-node" class="btn">Remove selected node</button><button id="selected-remove-incoming" class="btn">Remove incoming</button><button id="selected-remove-outgoing" class="btn">Remove outgoing</button></div>
+              <div class="row" style="margin-top:8px;"><button id="selected-remove-incoming" class="btn">Remove incoming</button><button id="selected-remove-outgoing" class="btn">Remove outgoing</button></div>
               <div class="row" style="margin-top:8px;"><button id="selected-add-path" class="btn">Add current path</button><button id="selected-remove-path" class="btn">Remove current path</button><button id="selected-copy" class="btn">Copy selected code</button></div>
               <div id="selected-status" class="status-box">No selected-state nodes yet.</div>
               <div id="selected-list" class="path-list"></div>

@@ -71,6 +71,11 @@ function drawArrowHead(context, x1, y1, x2, y2, color, size) {
   context.closePath();
   context.fill();
 }
+function withLineNumbers(text, startLine = 1, enabled = false) {
+  const value = String(text || '');
+  if (!enabled) return value;
+  return value.split('\n').map((line, idx) => `${startLine + idx}: ${line}`).join('\n');
+}
 
 export function createApp(bootstrap) {
   const raw = bootstrap?.graph || bootstrap;
@@ -304,7 +309,8 @@ export function createApp(bootstrap) {
       const node = state.rawNodeByKey.get(nodeId);
       const fileName = node?.path || 'unknown';
       const preview = sourcePreview(state, node || {}) || 'No source snippet available';
-      return '// file: ' + fileName + '\n' + preview;
+      const startLine = node?.range?.start?.line || 1;
+      return '// file: ' + fileName + '\n' + withLineNumbers(preview, startLine, showLineNumbers);
     }).join('\n\n');
     await navigator.clipboard.writeText(text);
     updatePathStatus('Copied ' + selectedPath.length + ' selected code block(s) to clipboard.');
@@ -396,12 +402,23 @@ export function createApp(bootstrap) {
   }
   function updateSelectedStateViews() {
     const items = [...selectedStateNodeSet];
-    dom.selectedStatus.textContent = items.length ? ('Selected-state nodes: ' + items.length) : 'No selected-state nodes yet.';
+    const totalLines = items.reduce((sum, nodeId) => sum + estimateCodeSize(state, state.rawNodeByKey.get(nodeId) || {}), 0);
+    dom.selectedStatus.textContent = items.length ? ('Selected-state nodes: ' + items.length + ' · ' + totalLines + ' total lines ready to copy.') : 'No selected-state nodes yet.';
     dom.selectedList.innerHTML = items.map((nodeId, idx) => {
       const node = state.rawNodeByKey.get(nodeId);
       const fileColor = fileColorByPath.get(node?.path || '') || '#8f9bb3';
-      return '<button class="path-item" data-selected-node="' + escapeHtml(nodeId) + '"><span class="path-step">' + idx + '</span><span class="path-main"><span class="path-label">' + escapeHtml(node?.label || nodeId) + '</span><span class="path-file mono" style="color:' + escapeHtml(fileColor) + '">' + escapeHtml(node?.path || 'unknown') + '</span></span></button>';
+      const codeLines = estimateCodeSize(state, node || {});
+      return '<div class="path-item"><span class="path-step">' + idx + '</span><span class="path-main"><span class="path-label">' + escapeHtml(node?.label || nodeId) + '</span><span class="path-file mono"><span class="selection-accent"><span class="selection-dot" style="background:' + escapeHtml(fileColor) + ';"></span><span style="color:' + escapeHtml(fileColor) + '">' + escapeHtml(node?.path || 'unknown') + '</span></span></span><span class="path-entity-meta mono">' + codeLines + ' lines of code</span><button class="btn" data-selected-remove-node="' + escapeHtml(nodeId) + '">Remove node</button></span></div>';
     }).join('');
+    dom.selectedList.querySelectorAll('[data-selected-remove-node]').forEach((el) => {
+      el.addEventListener('click', () => {
+        const nodeId = el.getAttribute('data-selected-remove-node');
+        if (!nodeId) return;
+        selectedStateNodeSet.delete(nodeId);
+        updateSelectedStateViews();
+        applyVisualState(dom.search.value);
+      });
+    });
     dom.selectedCodeView.innerHTML = items.map((nodeId, idx) => {
       const node = state.rawNodeByKey.get(nodeId);
       const preview = sourcePreview(state, node || {});
@@ -409,6 +426,18 @@ export function createApp(bootstrap) {
       const code = '// file: ' + (node?.path || 'unknown') + '\n' + (preview || 'No source snippet available');
       return '<div><div class="path-code-file">' + escapeHtml(String(idx)) + '. ' + escapeHtml(node?.label || nodeId) + '</div>' + renderCodeBlock(Prism, code, startLine, showLineNumbers) + '</div>';
     }).join('');
+  }
+  function updateSelectedMutationButtonLabels() {
+    const incoming = selectedNode ? graph.inboundNeighbors(selectedNode) : [];
+    const outgoing = selectedNode ? graph.outboundNeighbors(selectedNode) : [];
+    const incomingToAdd = incoming.filter((n) => !selectedStateNodeSet.has(n)).length;
+    const incomingToRemove = incoming.filter((n) => selectedStateNodeSet.has(n)).length;
+    const outgoingToAdd = outgoing.filter((n) => !selectedStateNodeSet.has(n)).length;
+    const outgoingToRemove = outgoing.filter((n) => selectedStateNodeSet.has(n)).length;
+    dom.selectedAddIncomingBtn.textContent = `Add incoming (+${incomingToAdd})`;
+    dom.selectedAddOutgoingBtn.textContent = `Add outgoing (+${outgoingToAdd})`;
+    dom.selectedRemoveIncomingBtn.textContent = `Remove incoming (-${incomingToRemove})`;
+    dom.selectedRemoveOutgoingBtn.textContent = `Remove outgoing (-${outgoingToRemove})`;
   }
 
   function updateSearchHints(query = '') {
@@ -643,16 +672,15 @@ export function createApp(bootstrap) {
     applyVisualState(dom.search.value);
   });
   dom.pathCopyBtn.addEventListener('click', () => { copySelectedPathCodeBlocks().catch(() => updatePathStatus('Clipboard copy failed. Browser denied clipboard access.')); });
-  const mutateSelected = (mode, add) => { if (!selectedNode) return; const nodes = mode === 'node' ? [selectedNode] : (mode === 'incoming' ? graph.inboundNeighbors(selectedNode) : graph.outboundNeighbors(selectedNode)); nodes.forEach((n) => add ? selectedStateNodeSet.add(n) : selectedStateNodeSet.delete(n)); updateSelectedStateViews(); applyVisualState(dom.search.value); };
+  const mutateSelected = (mode, add) => { if (!selectedNode) return; const nodes = mode === 'node' ? [selectedNode] : (mode === 'incoming' ? graph.inboundNeighbors(selectedNode) : graph.outboundNeighbors(selectedNode)); nodes.forEach((n) => add ? selectedStateNodeSet.add(n) : selectedStateNodeSet.delete(n)); updateSelectedStateViews(); updateSelectedMutationButtonLabels(); applyVisualState(dom.search.value); };
   dom.selectedAddNodeBtn.addEventListener('click', () => mutateSelected('node', true));
   dom.selectedAddIncomingBtn.addEventListener('click', () => mutateSelected('incoming', true));
   dom.selectedAddOutgoingBtn.addEventListener('click', () => mutateSelected('outgoing', true));
-  dom.selectedRemoveNodeBtn.addEventListener('click', () => mutateSelected('node', false));
   dom.selectedRemoveIncomingBtn.addEventListener('click', () => mutateSelected('incoming', false));
   dom.selectedRemoveOutgoingBtn.addEventListener('click', () => mutateSelected('outgoing', false));
-  dom.selectedAddPathBtn.addEventListener('click', () => { currentPath.forEach((n) => selectedStateNodeSet.add(n)); updateSelectedStateViews(); applyVisualState(dom.search.value); });
-  dom.selectedRemovePathBtn.addEventListener('click', () => { currentPath.forEach((n) => selectedStateNodeSet.delete(n)); updateSelectedStateViews(); applyVisualState(dom.search.value); });
-  dom.selectedCopyBtn.addEventListener('click', async () => { const text = [...selectedStateNodeSet].map((nodeId) => { const node = state.rawNodeByKey.get(nodeId); return '// file: ' + (node?.path || 'unknown') + '\n' + (sourcePreview(state, node || {}) || 'No source snippet available'); }).join('\n\n'); await navigator.clipboard.writeText(text); dom.selectedStatus.textContent = 'Copied ' + selectedStateNodeSet.size + ' selected-state code block(s).'; });
+  dom.selectedAddPathBtn.addEventListener('click', () => { currentPath.forEach((n) => selectedStateNodeSet.add(n)); updateSelectedStateViews(); updateSelectedMutationButtonLabels(); applyVisualState(dom.search.value); });
+  dom.selectedRemovePathBtn.addEventListener('click', () => { currentPath.forEach((n) => selectedStateNodeSet.delete(n)); updateSelectedStateViews(); updateSelectedMutationButtonLabels(); applyVisualState(dom.search.value); });
+  dom.selectedCopyBtn.addEventListener('click', async () => { const text = [...selectedStateNodeSet].map((nodeId) => { const node = state.rawNodeByKey.get(nodeId); const preview = sourcePreview(state, node || {}) || 'No source snippet available'; const startLine = node?.range?.start?.line || 1; return '// file: ' + (node?.path || 'unknown') + '\n' + withLineNumbers(preview, startLine, showLineNumbers); }).join('\n\n'); await navigator.clipboard.writeText(text); dom.selectedStatus.textContent = 'Copied ' + selectedStateNodeSet.size + ' selected-state code block(s).'; });
   dom.pathReverseBtn.addEventListener('click', () => {
     const from = dom.pathFromInput.value;
     dom.pathFromInput.value = dom.pathToInput.value;
@@ -710,6 +738,7 @@ export function createApp(bootstrap) {
     if (mainComponentFocusMode) setMainFromNode(node);
     else assignNodeToFocusedField(node);
     updateInspect(node);
+    updateSelectedMutationButtonLabels();
     applyVisualState(dom.search.value);
   });
   sigma.on('enterNode', ({ node }) => { hoveredNode = node; applyVisualState(dom.search.value); });
@@ -734,6 +763,7 @@ export function createApp(bootstrap) {
   renderPathList();
   renderPathCodeView();
   updateSelectedStateViews();
+  updateSelectedMutationButtonLabels();
   updatePathStatus('No path selected. Focus source or sink, then click a node to assign it.');
   if (selectedNode) updateInspect(selectedNode);
   applyVisualState();
