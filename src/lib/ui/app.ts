@@ -35,6 +35,48 @@ function rgba(hex, alpha) {
 function escapeRegExp(text) {
   return String(text).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
+
+function pathWithoutExtension(path) {
+  return String(path || '').replace(/\.[^\/.]+$/, '');
+}
+function normalizePathSearchText(value) {
+  return String(value || '')
+    .toLowerCase()
+    .replace(/\\/g, '/')
+    .replace(/::+/g, '/')
+    .replace(/[.]+/g, '/')
+    .replace(/\/+/g, '/')
+    .replace(/^\/+|\/+$/g, '');
+}
+function pathSearchCandidates(path) {
+  const lowerPath = String(path || '').toLowerCase();
+  const noExt = pathWithoutExtension(lowerPath);
+  const parts = noExt.split(/[\/]/).filter(Boolean);
+  const fileStem = parts.at(-1) || noExt;
+  return new Set([
+    lowerPath,
+    noExt,
+    normalizePathSearchText(lowerPath),
+    normalizePathSearchText(noExt),
+    fileStem,
+    normalizePathSearchText(fileStem)
+  ].filter(Boolean));
+}
+function pathMatchesFilePart(path, rawFilePart) {
+  const raw = String(rawFilePart || '').trim().toLowerCase();
+  if (!raw) return false;
+  const normalizedRaw = normalizePathSearchText(raw);
+  const rawWithoutExt = pathWithoutExtension(raw);
+  const normalizedRawWithoutExt = normalizePathSearchText(rawWithoutExt);
+  const rawLeaf = normalizedRawWithoutExt.split('/').filter(Boolean).at(-1) || normalizedRawWithoutExt;
+  const candidates = pathSearchCandidates(path);
+  for (const candidate of candidates) {
+    if (candidate.includes(raw) || candidate.includes(rawWithoutExt) || candidate.includes(normalizedRaw) || candidate.includes(normalizedRawWithoutExt)) return true;
+    if (candidate.endsWith('/' + normalizedRawWithoutExt) || candidate === normalizedRawWithoutExt) return true;
+    if (rawLeaf && candidate.split('/').filter(Boolean).at(-1) === rawLeaf) return true;
+  }
+  return false;
+}
 function parseFileLineQuery(query) {
   const match = query.match(/^(.+):(\d+)$/);
   if (!match) return null;
@@ -42,21 +84,31 @@ function parseFileLineQuery(query) {
   const line = Number(match[2]);
   if (!filePart || !Number.isFinite(line) || line < 1) return null;
   const normalized = filePart.endsWith('.rs') ? filePart : `${filePart}.rs`;
-  return { rawFile: filePart, normalizedFile: normalized, line };
+  return { rawFile: filePart, normalizedFile: normalized, normalizedFilePart: normalizePathSearchText(filePart), line };
 }
 function nodeScoreForHint(node, query) {
   const q = query.trim().toLowerCase();
   if (!q) return -Infinity;
+  const fileLineQuery = parseFileLineQuery(q);
+  if (fileLineQuery) {
+    const range = node.range || null;
+    const lineInRange = Boolean(range && range.start?.line <= fileLineQuery.line && range.end?.line >= fileLineQuery.line);
+    if (lineInRange && pathMatchesFilePart(node.path || '', fileLineQuery.rawFile)) return 360;
+  }
   const label = String(node.label || '').toLowerCase();
   const path = String(node.path || '').toLowerCase();
   const signature = String(node.signature || '').toLowerCase();
   let score = -Infinity;
-  const candidates = [label, path, signature];
+  const pathCandidates = [...pathSearchCandidates(path)];
+  const candidates = [label, path, signature, ...pathCandidates];
+  const queryCandidates = [...new Set([q, normalizePathSearchText(q)].filter(Boolean))];
   for (const text of candidates) {
-    const idx = text.indexOf(q);
-    if (idx < 0) continue;
-    const candidateScore = (idx === 0 ? 220 : 140 - Math.min(idx, 100)) + Math.max(0, 80 - text.length);
-    if (candidateScore > score) score = candidateScore;
+    for (const candidateQuery of queryCandidates) {
+      const idx = text.indexOf(candidateQuery);
+      if (idx < 0) continue;
+      const candidateScore = (idx === 0 ? 220 : 140 - Math.min(idx, 100)) + Math.max(0, 80 - text.length);
+      if (candidateScore > score) score = candidateScore;
+    }
   }
   return score;
 }
@@ -415,18 +467,18 @@ export function createApp(bootstrap) {
     if (!q) return true;
     const fileLineQuery = parseFileLineQuery(q);
     if (fileLineQuery) {
-      const path = String(attrs.path || '').toLowerCase();
       const range = node.range || null;
       const lineInRange = Boolean(range && range.start?.line <= fileLineQuery.line && range.end?.line >= fileLineQuery.line);
-      const fileMatches = path.includes(fileLineQuery.normalizedFile) || path.endsWith(fileLineQuery.rawFile);
+      const fileMatches = pathMatchesFilePart(attrs.path || node.path || '', fileLineQuery.rawFile);
       if (lineInRange && fileMatches) return true;
       const fileContent = state.fileContentByPath.get(attrs.path || '') || '';
-      const fileLineRegex = new RegExp(`${escapeRegExp(fileLineQuery.normalizedFile)}:${fileLineQuery.line}\\b`, 'i');
+      const fileLineRegex = new RegExp(`${escapeRegExp(fileLineQuery.rawFile)}(?:\\.rs)?[:#]${fileLineQuery.line}\\b`, 'i');
       return fileLineRegex.test(String(node.sourceSnippet || '')) || fileLineRegex.test(fileContent);
     }
     const fileContent = state.fileContentByPath.get(attrs.path || '') || '';
     return attrs.label.toLowerCase().includes(q)
       || String(attrs.path || '').toLowerCase().includes(q)
+      || pathMatchesFilePart(attrs.path || node.path || '', q)
       || String(attrs.signature || '').toLowerCase().includes(q)
       || fileContent.toLowerCase().includes(q)
       || String(node.sourceSnippet || '').toLowerCase().includes(q);
@@ -456,28 +508,55 @@ export function createApp(bootstrap) {
   function resolveNodeNameWord(word) {
     const value = String(word || '').trim();
     if (!value) return null;
-    if (state.rawNodeByKey.has(value)) return value;
+    if (state.rawNodeByKey.has(value)) return { nodeId: value, reason: 'key' };
     const lower = value.toLowerCase();
-    if (state.labelToKeys.has(lower)) return state.labelToKeys.get(lower)[0];
+    const fileLineQuery = parseFileLineQuery(value);
+    if (fileLineQuery) {
+      for (const node of state.raw.nodes) {
+        const range = node.range || null;
+        const lineInRange = Boolean(range && range.start?.line <= fileLineQuery.line && range.end?.line >= fileLineQuery.line);
+        if (lineInRange && pathMatchesFilePart(node.path || '', fileLineQuery.rawFile)) return { nodeId: node.key, reason: 'file:line' };
+      }
+    }
+    if (state.labelToKeys.has(lower)) return { nodeId: state.labelToKeys.get(lower)[0], reason: 'label' };
     for (const node of state.raw.nodes) {
-      if (String(node.key || '').toLowerCase() === lower) return node.key;
-      if (String(node.label || '').toLowerCase() === lower) return node.key;
+      if (String(node.key || '').toLowerCase() === lower) return { nodeId: node.key, reason: 'key' };
+      if (String(node.label || '').toLowerCase() === lower) return { nodeId: node.key, reason: 'label' };
+      if (pathMatchesFilePart(node.path || '', value)) return { nodeId: node.key, reason: 'file' };
     }
     return null;
+  }
+  function bulkWordCandidates(word) {
+    const value = String(word || '').trim();
+    if (!value) return [];
+    const candidates = [value];
+    for (const part of value.split(/[.:]+/)) {
+      const clean = part.trim();
+      if (clean && !/^\d+$/.test(clean)) candidates.push(clean);
+    }
+    return [...new Set(candidates)];
   }
   function parseBulkTextNodeIds() {
     const text = dom.bulkTextInput?.value || '';
     const words = text.match(/[A-Za-z0-9_.$:/#-]+/g) || [];
     const nodeIds = [];
     const unresolved = [];
+    const matches = [];
     for (const rawWord of words) {
       const word = rawWord.replace(/^[^A-Za-z0-9_]+|[^A-Za-z0-9_]+$/g, '');
       if (!word) continue;
-      const nodeId = resolveNodeNameWord(word);
-      if (nodeId) nodeIds.push(nodeId);
-      else unresolved.push(word);
+      let resolved = null;
+      for (const candidate of bulkWordCandidates(word)) {
+        resolved = resolveNodeNameWord(candidate);
+        if (resolved) {
+          nodeIds.push(resolved.nodeId);
+          matches.push({ rawWord: word, matchedText: candidate, nodeId: resolved.nodeId, reason: resolved.reason });
+          break;
+        }
+      }
+      if (!resolved) unresolved.push(word);
     }
-    return { nodeIds: uniqueNodeIds(nodeIds), wordCount: words.length, unresolved: [...new Set(unresolved)] };
+    return { nodeIds: uniqueNodeIds(nodeIds), wordCount: words.length, unresolved: [...new Set(unresolved)], matches };
   }
   function updateBulkTextMutationViews() {
     if (!dom.bulkTextInput) return;
@@ -489,8 +568,31 @@ export function createApp(bootstrap) {
     dom.bulkStatus.textContent = parsed.nodeIds.length
       ? 'Resolved ' + parsed.nodeIds.length + ' unique node(s) from ' + parsed.wordCount + ' word(s). ' + parsed.unresolved.length + ' unique word(s) did not resolve.'
       : 'No text nodes resolved yet.';
+    renderBulkMatchAnnotations(parsed.matches);
     renderMutationHint(dom.bulkAddHints, 'Will be added from text', addSummary);
     renderMutationHint(dom.bulkRemoveHints, 'Will be removed from text', removeSummary);
+  }
+  function renderBulkMatchAnnotations(matches) {
+    if (!dom.bulkMatchAnnotations) return;
+    const uniqueMatches = [];
+    const seen = new Set();
+    for (const match of matches || []) {
+      const key = match.rawWord + '\0' + match.matchedText + '\0' + match.nodeId;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      uniqueMatches.push(match);
+    }
+    if (!uniqueMatches.length) {
+      dom.bulkMatchAnnotations.innerHTML = '<div class="mutation-hint-empty">No matched text parts yet.</div>';
+      return;
+    }
+    const rows = uniqueMatches.slice(0, 120).map((match) => {
+      const node = state.rawNodeByKey.get(match.nodeId);
+      const fileColor = fileColorByPath.get(node?.path || '') || '#8f9bb3';
+      return '<div class="bulk-match-row"><span><mark>' + escapeHtml(match.matchedText) + '</mark> from <span class="mono">' + escapeHtml(match.rawWord) + '</span></span><span style="color:' + escapeHtml(fileColor) + '">' + escapeHtml(node?.label || match.nodeId) + ' · ' + escapeHtml(match.reason) + '</span></div>';
+    }).join('');
+    const overflow = uniqueMatches.length > 120 ? '<div class="mutation-hint-empty">…and ' + (uniqueMatches.length - 120) + ' more matched text part(s).</div>' : '';
+    dom.bulkMatchAnnotations.innerHTML = '<div class="bulk-match-title">Matched text parts → nodes</div><div class="bulk-match-list">' + rows + overflow + '</div>';
   }
   function updateAllMutationViews() {
     updateSelectedMutationButtonLabels();
