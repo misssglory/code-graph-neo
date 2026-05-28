@@ -100,6 +100,8 @@ export function createApp(bootstrap) {
   let nodeSizeBase = Number(graphConfig.node_size_base ?? 11);
   let nodeSizeCodeFactor = Number(graphConfig.node_size_code_factor ?? 0.015);
   let paneTransparency = Number(uiConfig.pane_transparency ?? 0.58);
+  let foundPaths = [];
+  let foundPathIndex = -1;
   let currentPath = [];
   let pathSelectedNodeSet = new Set();
   let pathNodeSet = new Set();
@@ -188,6 +190,22 @@ export function createApp(bootstrap) {
     });
   }
 
+  function renderFoundPathTabs() {
+    if (!dom.pathFoundList) return;
+    if (!foundPaths.length) {
+      dom.pathFoundList.innerHTML = '<div class="path-empty">No paths found yet.</div>';
+      return;
+    }
+    dom.pathFoundList.innerHTML = foundPaths.map((path, idx) => {
+      const active = idx === foundPathIndex ? 'true' : 'false';
+      const length = Math.max(0, path.length - 1);
+      return '<button class="btn path-pill" data-found-path-index="' + idx + '" data-active="' + active + '">Path ' + (idx + 1) + ' · len ' + length + '</button>';
+    }).join('');
+    dom.pathFoundList.querySelectorAll('[data-found-path-index]').forEach((el) => {
+      el.addEventListener('click', () => activateFoundPath(Number(el.getAttribute('data-found-path-index') || '0')));
+    });
+  }
+
   function renderPathList() {
     if (!currentPath.length) {
       pathCursorIndex = -1;
@@ -200,22 +218,23 @@ export function createApp(bootstrap) {
       const fileColor = fileColorByPath.get(node?.path || '') || '#8f9bb3';
       const selected = idx === pathCursorIndex ? 'true' : 'false';
       const codeLines = estimateCodeSize(state, node || {});
-      const showCode = pathSelectedNodeSet.has(nodeId) ? 'checked' : '';
-      return '<button class="path-item" role="option" aria-selected="' + selected + '" data-selected="' + selected + '" data-node-id="' + escapeHtml(nodeId) + '" data-index="' + idx + '"><span class="path-step">' + idx + '</span><span class="path-main"><span class="path-label">' + escapeHtml(node?.label || nodeId) + '</span><span class="path-file mono"><span class="selection-accent"><span class="selection-dot" style="background:' + escapeHtml(fileColor) + ';"></span><span style="color:' + escapeHtml(fileColor) + '">' + escapeHtml(node?.path || 'unknown') + '</span></span></span><span class="path-entity-meta mono">' + codeLines + ' lines of code</span><label class="checkbox-row"><input type="checkbox" data-path-code-toggle="' + escapeHtml(nodeId) + '" ' + showCode + ' />Include code block</label></span></button>';
+      const includeCode = pathSelectedNodeSet.has(nodeId) ? 'true' : 'false';
+      return '<button class="path-item" role="option" aria-selected="' + selected + '" data-selected="' + selected + '" data-node-id="' + escapeHtml(nodeId) + '" data-index="' + idx + '"><span class="path-step path-step-toggle" role="checkbox" data-path-code-toggle="' + escapeHtml(nodeId) + '" data-included="' + includeCode + '" aria-checked="' + includeCode + '">' + idx + '</span><span class="path-main"><span class="path-label">' + escapeHtml(node?.label || nodeId) + '</span><span class="path-file mono"><span class="selection-accent"><span class="selection-dot" style="background:' + escapeHtml(fileColor) + ';"></span><span style="color:' + escapeHtml(fileColor) + '">' + escapeHtml(node?.path || 'unknown') + '</span></span></span><span class="path-entity-meta mono">' + codeLines + ' lines of code</span></span></button>';
     }).join('');
     dom.pathList.querySelectorAll('[data-node-id]').forEach((el) => {
       el.addEventListener('click', () => activatePathRow(Number(el.getAttribute('data-index') || '0')));
     });
     dom.pathList.querySelectorAll('[data-path-code-toggle]').forEach((el) => {
-      el.addEventListener('click', (event) => event.stopPropagation());
-      el.addEventListener('change', () => {
+      el.addEventListener('click', (event) => {
+        event.stopPropagation();
         const nodeId = el.getAttribute('data-path-code-toggle');
         if (!nodeId) return;
-        if (el.checked) pathSelectedNodeSet.add(nodeId);
-        else pathSelectedNodeSet.delete(nodeId);
+        if (pathSelectedNodeSet.has(nodeId)) pathSelectedNodeSet.delete(nodeId);
+        else pathSelectedNodeSet.add(nodeId);
         updatePathSelectionSummary();
         renderPathCodeView();
-  updateSelectedStateViews();
+        updateSelectedStateViews();
+        renderPathList();
       });
     });
     updatePathSelectionSummary();
@@ -228,6 +247,7 @@ export function createApp(bootstrap) {
     selectedNode = nodeId;
     hoveredNode = nodeId;
     updateInspect(nodeId);
+    renderFoundPathTabs();
     renderPathList();
     applyVisualState(dom.search.value);
     const activeEl = dom.pathList.querySelector(`[data-index="${pathCursorIndex}"]`);
@@ -252,6 +272,13 @@ export function createApp(bootstrap) {
     }
   }
 
+  function activateFoundPath(index) {
+    if (!foundPaths.length) return;
+    foundPathIndex = Math.max(0, Math.min(foundPaths.length - 1, index));
+    setPath(foundPaths[foundPathIndex] || []);
+    renderFoundPathTabs();
+  }
+
   function setPath(nodePath) {
     currentPath = nodePath || [];
     pathSelectedNodeSet = new Set(currentPath);
@@ -264,9 +291,10 @@ export function createApp(bootstrap) {
       }
     }
     pathCursorIndex = currentPath.length ? 0 : -1;
+    renderFoundPathTabs();
     renderPathList();
     renderPathCodeView();
-  updateSelectedStateViews();
+    updateSelectedStateViews();
   }
 
   function renderPathCodeView() {
@@ -348,6 +376,8 @@ export function createApp(bootstrap) {
       applyVisualState(dom.search.value);
       return;
     }
+    foundPaths.push(path);
+    foundPathIndex = foundPaths.length - 1;
     setPath(path);
     updatePathStatus('Path length ' + (path.length - 1) + ': ' + path.map((id) => graph.getNodeAttribute(id, 'label')).join(' -> '));
     applyVisualState(dom.search.value);
@@ -408,7 +438,7 @@ export function createApp(bootstrap) {
       const node = state.rawNodeByKey.get(nodeId);
       const fileColor = fileColorByPath.get(node?.path || '') || '#8f9bb3';
       const codeLines = estimateCodeSize(state, node || {});
-      return '<div class="path-item"><span class="path-step">' + idx + '</span><span class="path-main"><span class="path-label">' + escapeHtml(node?.label || nodeId) + '</span><span class="path-file mono"><span class="selection-accent"><span class="selection-dot" style="background:' + escapeHtml(fileColor) + ';"></span><span style="color:' + escapeHtml(fileColor) + '">' + escapeHtml(node?.path || 'unknown') + '</span></span></span><span class="path-entity-meta mono">' + codeLines + ' lines of code</span><button class="btn" data-selected-remove-node="' + escapeHtml(nodeId) + '">Remove node</button></span></div>';
+      return '<div class="path-item selected-item"><span class="path-step">' + idx + '</span><span class="path-main"><span class="path-label">' + escapeHtml(node?.label || nodeId) + '</span><span class="path-file mono"><span class="selection-accent"><span class="selection-dot" style="background:' + escapeHtml(fileColor) + ';"></span><span style="color:' + escapeHtml(fileColor) + '">' + escapeHtml(node?.path || 'unknown') + '</span></span></span><span class="path-entity-meta mono">' + codeLines + ' lines of code</span></span><button class="btn selected-remove-btn" data-selected-remove-node="' + escapeHtml(nodeId) + '">Remove node</button></div>';
     }).join('');
     dom.selectedList.querySelectorAll('[data-selected-remove-node]').forEach((el) => {
       el.addEventListener('click', () => {
@@ -665,7 +695,10 @@ export function createApp(bootstrap) {
   dom.searchHintsOverlay.addEventListener('click', (event) => { const btn = event.target.closest('[data-hint-node]'); if (!btn) return; const nodeId = btn.getAttribute('data-hint-node'); if (!nodeId) return; dom.search.value = graph.getNodeAttribute(nodeId, 'label') || nodeId; selectedNode = nodeId; hoveredNode = nodeId; updateInspect(nodeId); dom.searchHintsOverlay.hidden = true; applyVisualState(dom.search.value); });
   dom.pathGoBtn.addEventListener('click', runPathSearch);
   dom.pathClearBtn.addEventListener('click', () => {
+    foundPaths = [];
+    foundPathIndex = -1;
     setPath(null);
+    renderFoundPathTabs();
     dom.pathFromInput.value = '';
     dom.pathToInput.value = '';
     updatePathStatus('No path selected.');

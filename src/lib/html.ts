@@ -89,11 +89,15 @@ export function renderHtml(graphData: GraphData, config: any = {}): string {
     .code-ln { user-select: none; padding: 0 12px; text-align: right; color: #707070; border-right: 1px solid rgba(255,255,255,0.08); background: rgba(255,255,255,0.02); }
     .code-src { display: block; padding: 0 12px; white-space: pre; }
     .path-list { display: grid; gap: 8px; margin-top: 12px; }
+    .path-found-list { display:flex; gap:8px; overflow:auto; padding-bottom:2px; margin-top:8px; }
+    .path-pill { white-space: nowrap; padding: 6px 10px; font-size: 12px; }
     .path-item { width: 100%; text-align: left; display: grid; grid-template-columns: 32px 1fr; gap: 10px; align-items: start; padding: 10px; border-radius: 12px; border: 1px solid var(--border); background: rgba(255,255,255,0.04); color: var(--text); cursor: pointer; }
     .path-item:hover { background: rgba(255,255,255,0.07); }
     .path-item[data-selected="true"] { background: rgba(0,0,0,0.92); border-color: rgba(255,255,255,0.22); box-shadow: inset 0 0 0 1px rgba(255,255,255,0.06), 0 8px 24px rgba(0,0,0,0.28); }
     .path-item:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
     .path-step { color: var(--path); font-family: var(--mono); }
+    .path-step-toggle { display:inline-flex; align-items:center; justify-content:center; width:24px; height:24px; border-radius:8px; border:1px solid rgba(255,255,255,0.18); cursor:pointer; }
+    .path-step-toggle[data-included="true"] { background: rgba(255,213,79,0.2); border-color: var(--path); }
     .path-main { display: grid; gap: 4px; }
     .path-label { font-size: 13px; color: #ffffff; }
     .path-file { font-size: 11px; color: var(--muted); }
@@ -103,6 +107,8 @@ export function renderHtml(graphData: GraphData, config: any = {}): string {
     .path-empty { color: var(--muted); font-size: 13px; }
     .path-code-view { display: grid; gap: 10px; margin-top: 12px; }
     .path-code-file { margin: 0; color: #d0d8e8; font-family: var(--mono); font-size: 12px; }
+    .selected-item { position: relative; padding-right: 120px; }
+    .selected-remove-btn { position:absolute; right:10px; top:10px; padding:6px 10px; }
     [hidden] { display: none !important; }
     .app[data-sidebar-collapsed="true"] .right-pane-wrap { width: 56px !important; height: 56px !important; }
     .app[data-sidebar-collapsed="true"] .right-pane-resize-corner { display: none; }
@@ -215,6 +221,7 @@ export function renderHtml(graphData: GraphData, config: any = {}): string {
                 <div class="row"><button id="path-go" class="btn">Find path</button><button id="path-reverse" class="btn">Reverse</button><button id="path-clear" class="btn">Clear</button></div>
                 <div id="path-status" class="status-box">No path selected.</div>
                 <div id="path-selection-summary" class="status-box">Selected: 0 nodes · 0 total lines.</div>
+                <div id="path-found-list" class="path-found-list"></div>
                 <div class="row"><button id="path-copy-selected" class="btn">Copy selected code blocks</button></div>
                 <div id="path-list" class="path-list"></div>
                 <div id="path-code-view" class="path-code-view"></div>
