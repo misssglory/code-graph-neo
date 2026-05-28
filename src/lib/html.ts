@@ -50,6 +50,8 @@ export function renderHtml(graphData: GraphData, config: any = {}): string {
     .topbar { display: flex; gap: 8px; align-items: center; justify-content: space-between; margin-bottom: 12px; }
     .tab-row { display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
     .tab-btn, .btn { padding: 10px 12px; border-radius: 10px; border: 1px solid var(--border); background: rgba(255,255,255,0.05); color: var(--text); cursor: pointer; }
+    .btn.selected-action-add:hover { background: rgba(103,219,139,0.18); border-color: rgba(103,219,139,0.55); }
+    .btn.selected-action-remove:hover { background: rgba(255,126,126,0.18); border-color: rgba(255,126,126,0.55); }
     .tab-btn[data-active="true"], .btn[data-active="true"] { background: rgba(255,255,255,0.08); }
     .btn:hover, .tab-btn:hover { background: rgba(255,255,255,0.08); }
     .section-card { background: rgba(14, 17, 23, var(--panel-alpha-2)); border: 1px solid var(--border); border-radius: 14px; padding: 12px; margin-top: 12px; }
@@ -83,6 +85,7 @@ export function renderHtml(graphData: GraphData, config: any = {}): string {
     .outside-swatch { background: var(--outside); }
     .pathswatch { background: var(--path); }
     .status-box { margin-top: 8px; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--border); background: rgba(255,255,255,0.04); color: var(--muted); font-size: 12px; line-height: 1.45; }
+    .selected-action-hint { margin-top: 8px; padding: 10px 12px; border-radius: 10px; border: 1px dashed rgba(255,255,255,0.18); background: rgba(255,255,255,0.02); color: var(--muted); font-size: 12px; font-family: var(--mono); white-space: pre-wrap; }
     .code-block { margin-top: 8px; background: rgba(0,0,0,0.42); border: 1px solid rgba(255,255,255,0.08); border-radius: 10px; overflow: auto; padding: 12px; font-family: var(--mono); font-size: 12px; line-height: 1.55; white-space: pre; }
     .code-block.with-lines { padding: 0; }
     .code-row { display: grid; grid-template-columns: auto 1fr; min-width: max-content; }
@@ -169,10 +172,11 @@ export function renderHtml(graphData: GraphData, config: any = {}): string {
           <section data-tab-panel="selected-nodes" hidden>
             <div class="section-card">
               <h2>Selected state</h2>
-              <div class="row"><button id="selected-add-node" class="btn">Add selected node</button><button id="selected-add-incoming" class="btn">Add incoming</button><button id="selected-add-outgoing" class="btn">Add outgoing</button></div>
-              <div class="row" style="margin-top:8px;"><button id="selected-remove-incoming" class="btn">Remove incoming</button><button id="selected-remove-outgoing" class="btn">Remove outgoing</button></div>
+              <div class="row"><button id="selected-add-node" class="btn selected-action-add">Add selected node</button><button id="selected-add-incoming" class="btn selected-action-add">Add incoming</button><button id="selected-add-outgoing" class="btn selected-action-add">Add outgoing</button></div>
+              <div class="row" style="margin-top:8px;"><button id="selected-remove-incoming" class="btn selected-action-remove">Remove incoming</button><button id="selected-remove-outgoing" class="btn selected-action-remove">Remove outgoing</button></div>
               <div class="row" style="margin-top:8px;"><button id="selected-add-path" class="btn">Add current path</button><button id="selected-remove-path" class="btn">Remove current path</button><button id="selected-copy" class="btn">Copy selected code</button></div>
               <div id="selected-status" class="status-box">No selected-state nodes yet.</div>
+              <div id="selected-action-hint" class="selected-action-hint">Hover add/remove buttons to preview impacted nodes.</div>
               <div id="selected-list" class="path-list"></div>
               <div id="selected-code-view" class="path-code-view"></div>
             </div>

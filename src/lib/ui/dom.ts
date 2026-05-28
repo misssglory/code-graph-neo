@@ -17,6 +17,7 @@ export function createDom() {
     selectedRemovePathBtn: document.getElementById('selected-remove-path'),
     selectedCopyBtn: document.getElementById('selected-copy'),
     selectedStatus: document.getElementById('selected-status'),
+    selectedActionHint: document.getElementById('selected-action-hint'),
     selectedList: document.getElementById('selected-list'),
     selectedCodeView: document.getElementById('selected-code-view'),
     pathFromInput: document.getElementById('path-from'),
