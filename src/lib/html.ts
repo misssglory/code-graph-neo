@@ -59,7 +59,8 @@ export function renderHtml(graphData: GraphData, config: any = {}): string {
     .reachchip { color: var(--reach); }
     .unreachchip { color: var(--unreach); }
     .outsidechip { color: var(--outside); }
-    .search, .text-input, .select-input, .range-input { width: 100%; padding: 10px 12px; border-radius: 10px; background: rgba(255,255,255,0.04); border: 1px solid var(--border); color: var(--text); font-family: var(--mono); }
+    .search, .text-input, .select-input, .range-input, .textarea-input { width: 100%; padding: 10px 12px; border-radius: 10px; background: rgba(255,255,255,0.04); border: 1px solid var(--border); color: var(--text); font-family: var(--mono); }
+    .textarea-input { min-height: 280px; resize: vertical; line-height: 1.45; }
     .search-hints-overlay { width: 100%; margin-top: 8px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.15); background: rgba(0,0,0,0.95); overflow: hidden; }
     .hint-row { width: 100%; display: grid; grid-template-columns: 1fr auto; gap: 8px; text-align: left; border: 0; border-bottom: 1px solid rgba(255,255,255,0.07); background: transparent; color: #dce2ef; padding: 8px 10px; font-family: var(--mono); cursor: pointer; }
     .hint-row:last-child { border-bottom: 0; }
@@ -109,6 +110,12 @@ export function renderHtml(graphData: GraphData, config: any = {}): string {
     .path-code-file { margin: 0; color: #d0d8e8; font-family: var(--mono); font-size: 12px; }
     .selected-item { position: relative; padding-right: 120px; }
     .selected-remove-btn { position:absolute; right:10px; top:10px; padding:6px 10px; }
+    .mutation-hints { display: grid; gap: 8px; margin-top: 10px; }
+    .mutation-hint { border: 1px solid var(--border); border-radius: 12px; background: rgba(255,255,255,0.035); padding: 10px; }
+    .mutation-hint-title { color: var(--muted); font-size: 12px; margin-bottom: 8px; }
+    .mutation-hint-list { display: grid; gap: 6px; max-height: 220px; overflow: auto; }
+    .mutation-hint-row { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: baseline; font-family: var(--mono); font-size: 12px; color: #dce2ef; }
+    .mutation-hint-empty { color: var(--muted); font-size: 12px; }
     [hidden] { display: none !important; }
     .app[data-sidebar-collapsed="true"] .right-pane-wrap { width: 56px !important; height: 56px !important; }
     .app[data-sidebar-collapsed="true"] .right-pane-resize-corner { display: none; }
@@ -151,6 +158,7 @@ export function renderHtml(graphData: GraphData, config: any = {}): string {
           <button class="tab-btn" data-tab-button="settings" data-active="false">settings</button>
           <button class="tab-btn" data-tab-button="find-path" data-active="false">find path</button>
           <button class="tab-btn" data-tab-button="selected-nodes" data-active="false">selected nodes</button>
+          <button class="tab-btn" data-tab-button="bulk-text" data-active="false">bulk text</button>
         </div>
         <div class="sidebar-content">
           <section data-tab-panel="code-search">
@@ -172,9 +180,19 @@ export function renderHtml(graphData: GraphData, config: any = {}): string {
               <div class="row"><button id="selected-add-node" class="btn">Add selected node</button><button id="selected-add-incoming" class="btn">Add incoming</button><button id="selected-add-outgoing" class="btn">Add outgoing</button></div>
               <div class="row" style="margin-top:8px;"><button id="selected-remove-incoming" class="btn">Remove incoming</button><button id="selected-remove-outgoing" class="btn">Remove outgoing</button></div>
               <div class="row" style="margin-top:8px;"><button id="selected-add-path" class="btn">Add current path</button><button id="selected-remove-path" class="btn">Remove current path</button><button id="selected-copy" class="btn">Copy selected code</button></div>
+              <div id="selected-mutation-hints" class="mutation-hints"></div>
               <div id="selected-status" class="status-box">No selected-state nodes yet.</div>
               <div id="selected-list" class="path-list"></div>
               <div id="selected-code-view" class="path-code-view"></div>
+            </div>
+          </section>
+          <section data-tab-panel="bulk-text" hidden>
+            <div class="section-card">
+              <h2>Bulk text selection</h2>
+              <textarea id="bulk-text-input" class="textarea-input" placeholder="Paste text here. Every word is resolved as a graph node name, key, or exact label."></textarea>
+              <div class="row" style="margin-top:8px;"><button id="bulk-add" class="btn">Add text nodes (+0 nodes · 0 lines)</button><button id="bulk-remove" class="btn">Remove text nodes (-0 nodes · 0 lines)</button></div>
+              <div id="bulk-status" class="status-box">No text nodes resolved yet.</div>
+              <div class="mutation-hints"><div id="bulk-add-hints"></div><div id="bulk-remove-hints"></div></div>
             </div>
           </section>
           <section data-tab-panel="settings" hidden>

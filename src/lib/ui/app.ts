@@ -295,6 +295,7 @@ export function createApp(bootstrap) {
     renderPathList();
     renderPathCodeView();
     updateSelectedStateViews();
+    updateAllMutationViews();
   }
 
   function renderPathCodeView() {
@@ -430,6 +431,72 @@ export function createApp(bootstrap) {
       || fileContent.toLowerCase().includes(q)
       || String(node.sourceSnippet || '').toLowerCase().includes(q);
   }
+  function uniqueNodeIds(ids) {
+    return [...new Set((ids || []).filter((id) => id && state.rawNodeByKey.has(id)))];
+  }
+  function mutationSummary(ids, mode) {
+    const nodeIds = uniqueNodeIds(ids).filter((id) => mode === 'add' ? !selectedStateNodeSet.has(id) : selectedStateNodeSet.has(id));
+    const lines = nodeIds.reduce((sum, nodeId) => sum + estimateCodeSize(state, state.rawNodeByKey.get(nodeId) || {}), 0);
+    return { nodeIds, lines };
+  }
+  function formatMutationLabel(verb, summary, sign) {
+    return verb + ' (' + sign + summary.nodeIds.length + ' nodes · ' + summary.lines + ' lines)';
+  }
+  function renderMutationHint(container, title, summary) {
+    if (!container) return;
+    const rows = summary.nodeIds.slice(0, 80).map((nodeId) => {
+      const node = state.rawNodeByKey.get(nodeId);
+      const fileColor = fileColorByPath.get(node?.path || '') || '#8f9bb3';
+      const codeLines = estimateCodeSize(state, node || {});
+      return '<div class="mutation-hint-row"><span>' + escapeHtml(node?.label || nodeId) + '</span><span style="color:' + escapeHtml(fileColor) + '">' + escapeHtml(node?.path || 'unknown') + ' · ' + codeLines + ' lines</span></div>';
+    }).join('');
+    const overflow = summary.nodeIds.length > 80 ? '<div class="mutation-hint-empty">…and ' + (summary.nodeIds.length - 80) + ' more nodes.</div>' : '';
+    container.innerHTML = '<div class="mutation-hint"><div class="mutation-hint-title">' + escapeHtml(title) + ': ' + summary.nodeIds.length + ' nodes · ' + summary.lines + ' lines</div><div class="mutation-hint-list">' + (rows || '<div class="mutation-hint-empty">No nodes will change.</div>') + overflow + '</div></div>';
+  }
+  function resolveNodeNameWord(word) {
+    const value = String(word || '').trim();
+    if (!value) return null;
+    if (state.rawNodeByKey.has(value)) return value;
+    const lower = value.toLowerCase();
+    if (state.labelToKeys.has(lower)) return state.labelToKeys.get(lower)[0];
+    for (const node of state.raw.nodes) {
+      if (String(node.key || '').toLowerCase() === lower) return node.key;
+      if (String(node.label || '').toLowerCase() === lower) return node.key;
+    }
+    return null;
+  }
+  function parseBulkTextNodeIds() {
+    const text = dom.bulkTextInput?.value || '';
+    const words = text.match(/[A-Za-z0-9_.$:/#-]+/g) || [];
+    const nodeIds = [];
+    const unresolved = [];
+    for (const rawWord of words) {
+      const word = rawWord.replace(/^[^A-Za-z0-9_]+|[^A-Za-z0-9_]+$/g, '');
+      if (!word) continue;
+      const nodeId = resolveNodeNameWord(word);
+      if (nodeId) nodeIds.push(nodeId);
+      else unresolved.push(word);
+    }
+    return { nodeIds: uniqueNodeIds(nodeIds), wordCount: words.length, unresolved: [...new Set(unresolved)] };
+  }
+  function updateBulkTextMutationViews() {
+    if (!dom.bulkTextInput) return;
+    const parsed = parseBulkTextNodeIds();
+    const addSummary = mutationSummary(parsed.nodeIds, 'add');
+    const removeSummary = mutationSummary(parsed.nodeIds, 'remove');
+    dom.bulkAddBtn.textContent = formatMutationLabel('Add text nodes', addSummary, '+');
+    dom.bulkRemoveBtn.textContent = formatMutationLabel('Remove text nodes', removeSummary, '-');
+    dom.bulkStatus.textContent = parsed.nodeIds.length
+      ? 'Resolved ' + parsed.nodeIds.length + ' unique node(s) from ' + parsed.wordCount + ' word(s). ' + parsed.unresolved.length + ' unique word(s) did not resolve.'
+      : 'No text nodes resolved yet.';
+    renderMutationHint(dom.bulkAddHints, 'Will be added from text', addSummary);
+    renderMutationHint(dom.bulkRemoveHints, 'Will be removed from text', removeSummary);
+  }
+  function updateAllMutationViews() {
+    updateSelectedMutationButtonLabels();
+    updateBulkTextMutationViews();
+  }
+
   function updateSelectedStateViews() {
     const items = [...selectedStateNodeSet];
     const totalLines = items.reduce((sum, nodeId) => sum + estimateCodeSize(state, state.rawNodeByKey.get(nodeId) || {}), 0);
@@ -446,6 +513,7 @@ export function createApp(bootstrap) {
         if (!nodeId) return;
         selectedStateNodeSet.delete(nodeId);
         updateSelectedStateViews();
+        updateAllMutationViews();
         applyVisualState(dom.search.value);
       });
     });
@@ -458,16 +526,43 @@ export function createApp(bootstrap) {
     }).join('');
   }
   function updateSelectedMutationButtonLabels() {
+    const selected = selectedNode ? [selectedNode] : [];
     const incoming = selectedNode ? graph.inboundNeighbors(selectedNode) : [];
     const outgoing = selectedNode ? graph.outboundNeighbors(selectedNode) : [];
-    const incomingToAdd = incoming.filter((n) => !selectedStateNodeSet.has(n)).length;
-    const incomingToRemove = incoming.filter((n) => selectedStateNodeSet.has(n)).length;
-    const outgoingToAdd = outgoing.filter((n) => !selectedStateNodeSet.has(n)).length;
-    const outgoingToRemove = outgoing.filter((n) => selectedStateNodeSet.has(n)).length;
-    dom.selectedAddIncomingBtn.textContent = `Add incoming (+${incomingToAdd})`;
-    dom.selectedAddOutgoingBtn.textContent = `Add outgoing (+${outgoingToAdd})`;
-    dom.selectedRemoveIncomingBtn.textContent = `Remove incoming (-${incomingToRemove})`;
-    dom.selectedRemoveOutgoingBtn.textContent = `Remove outgoing (-${outgoingToRemove})`;
+    const path = currentPath || [];
+    const addSelected = mutationSummary(selected, 'add');
+    const addIncoming = mutationSummary(incoming, 'add');
+    const addOutgoing = mutationSummary(outgoing, 'add');
+    const removeIncoming = mutationSummary(incoming, 'remove');
+    const removeOutgoing = mutationSummary(outgoing, 'remove');
+    const addPath = mutationSummary(path, 'add');
+    const removePath = mutationSummary(path, 'remove');
+    dom.selectedAddNodeBtn.textContent = formatMutationLabel('Add selected node', addSelected, '+');
+    dom.selectedAddIncomingBtn.textContent = formatMutationLabel('Add incoming', addIncoming, '+');
+    dom.selectedAddOutgoingBtn.textContent = formatMutationLabel('Add outgoing', addOutgoing, '+');
+    dom.selectedRemoveIncomingBtn.textContent = formatMutationLabel('Remove incoming', removeIncoming, '-');
+    dom.selectedRemoveOutgoingBtn.textContent = formatMutationLabel('Remove outgoing', removeOutgoing, '-');
+    dom.selectedAddPathBtn.textContent = formatMutationLabel('Add current path', addPath, '+');
+    dom.selectedRemovePathBtn.textContent = formatMutationLabel('Remove current path', removePath, '-');
+    const hintParts = [
+      ['Add selected node', addSelected],
+      ['Add incoming', addIncoming],
+      ['Add outgoing', addOutgoing],
+      ['Remove incoming', removeIncoming],
+      ['Remove outgoing', removeOutgoing],
+      ['Add current path', addPath],
+      ['Remove current path', removePath],
+    ];
+    if (dom.selectedMutationHints) dom.selectedMutationHints.innerHTML = hintParts.map(([title, summary]) => {
+      const rows = summary.nodeIds.slice(0, 20).map((nodeId) => {
+        const node = state.rawNodeByKey.get(nodeId);
+        const fileColor = fileColorByPath.get(node?.path || '') || '#8f9bb3';
+        const codeLines = estimateCodeSize(state, node || {});
+        return '<div class="mutation-hint-row"><span>' + escapeHtml(node?.label || nodeId) + '</span><span style="color:' + escapeHtml(fileColor) + '">' + escapeHtml(node?.path || 'unknown') + ' · ' + codeLines + ' lines</span></div>';
+      }).join('');
+      const overflow = summary.nodeIds.length > 20 ? '<div class="mutation-hint-empty">…and ' + (summary.nodeIds.length - 20) + ' more.</div>' : '';
+      return '<details class="mutation-hint"><summary class="mutation-hint-title">' + escapeHtml(title) + ': ' + summary.nodeIds.length + ' nodes · ' + summary.lines + ' lines</summary><div class="mutation-hint-list">' + (rows || '<div class="mutation-hint-empty">No nodes will change.</div>') + overflow + '</div></details>';
+    }).join('');
   }
 
   function updateSearchHints(query = '') {
@@ -705,14 +800,17 @@ export function createApp(bootstrap) {
     applyVisualState(dom.search.value);
   });
   dom.pathCopyBtn.addEventListener('click', () => { copySelectedPathCodeBlocks().catch(() => updatePathStatus('Clipboard copy failed. Browser denied clipboard access.')); });
-  const mutateSelected = (mode, add) => { if (!selectedNode) return; const nodes = mode === 'node' ? [selectedNode] : (mode === 'incoming' ? graph.inboundNeighbors(selectedNode) : graph.outboundNeighbors(selectedNode)); nodes.forEach((n) => add ? selectedStateNodeSet.add(n) : selectedStateNodeSet.delete(n)); updateSelectedStateViews(); updateSelectedMutationButtonLabels(); applyVisualState(dom.search.value); };
+  const mutateSelected = (mode, add) => { if (!selectedNode) return; const nodes = mode === 'node' ? [selectedNode] : (mode === 'incoming' ? graph.inboundNeighbors(selectedNode) : graph.outboundNeighbors(selectedNode)); nodes.forEach((n) => add ? selectedStateNodeSet.add(n) : selectedStateNodeSet.delete(n)); updateSelectedStateViews(); updateAllMutationViews(); applyVisualState(dom.search.value); };
   dom.selectedAddNodeBtn.addEventListener('click', () => mutateSelected('node', true));
   dom.selectedAddIncomingBtn.addEventListener('click', () => mutateSelected('incoming', true));
   dom.selectedAddOutgoingBtn.addEventListener('click', () => mutateSelected('outgoing', true));
   dom.selectedRemoveIncomingBtn.addEventListener('click', () => mutateSelected('incoming', false));
   dom.selectedRemoveOutgoingBtn.addEventListener('click', () => mutateSelected('outgoing', false));
-  dom.selectedAddPathBtn.addEventListener('click', () => { currentPath.forEach((n) => selectedStateNodeSet.add(n)); updateSelectedStateViews(); updateSelectedMutationButtonLabels(); applyVisualState(dom.search.value); });
-  dom.selectedRemovePathBtn.addEventListener('click', () => { currentPath.forEach((n) => selectedStateNodeSet.delete(n)); updateSelectedStateViews(); updateSelectedMutationButtonLabels(); applyVisualState(dom.search.value); });
+  dom.selectedAddPathBtn.addEventListener('click', () => { currentPath.forEach((n) => selectedStateNodeSet.add(n)); updateSelectedStateViews(); updateAllMutationViews(); applyVisualState(dom.search.value); });
+  dom.selectedRemovePathBtn.addEventListener('click', () => { currentPath.forEach((n) => selectedStateNodeSet.delete(n)); updateSelectedStateViews(); updateAllMutationViews(); applyVisualState(dom.search.value); });
+  dom.bulkTextInput?.addEventListener('input', updateBulkTextMutationViews);
+  dom.bulkAddBtn?.addEventListener('click', () => { parseBulkTextNodeIds().nodeIds.forEach((n) => selectedStateNodeSet.add(n)); updateSelectedStateViews(); updateAllMutationViews(); applyVisualState(dom.search.value); });
+  dom.bulkRemoveBtn?.addEventListener('click', () => { parseBulkTextNodeIds().nodeIds.forEach((n) => selectedStateNodeSet.delete(n)); updateSelectedStateViews(); updateAllMutationViews(); applyVisualState(dom.search.value); });
   dom.selectedCopyBtn.addEventListener('click', async () => { const text = [...selectedStateNodeSet].map((nodeId) => { const node = state.rawNodeByKey.get(nodeId); const preview = sourcePreview(state, node || {}) || 'No source snippet available'; const startLine = node?.range?.start?.line || 1; return '// file: ' + (node?.path || 'unknown') + '\n' + withLineNumbers(preview, startLine, showLineNumbers); }).join('\n\n'); await navigator.clipboard.writeText(text); dom.selectedStatus.textContent = 'Copied ' + selectedStateNodeSet.size + ' selected-state code block(s).'; });
   dom.pathReverseBtn.addEventListener('click', () => {
     const from = dom.pathFromInput.value;
@@ -729,7 +827,7 @@ export function createApp(bootstrap) {
     else updatePathStatus(applyDirections ? 'Directed traversal enabled.' : 'Ignoring edge direction.');
   });
   dom.renderEdgeDirectionToggle.addEventListener('change', () => { renderEdgeDirection = dom.renderEdgeDirectionToggle.checked; sigma.refresh(); });
-  dom.lineNumbersToggle.addEventListener('change', () => { showLineNumbers = dom.lineNumbersToggle.checked; if (selectedNode) updateInspect(selectedNode); renderPathCodeView(); });
+  dom.lineNumbersToggle.addEventListener('change', () => { showLineNumbers = dom.lineNumbersToggle.checked; if (selectedNode) updateInspect(selectedNode); renderPathCodeView(); updateSelectedStateViews(); updateAllMutationViews(); });
   dom.layoutModeSelect.addEventListener('change', () => {
     layoutMode = dom.layoutModeSelect.value;
     const next = new URL(window.location.href);
@@ -771,7 +869,7 @@ export function createApp(bootstrap) {
     if (mainComponentFocusMode) setMainFromNode(node);
     else assignNodeToFocusedField(node);
     updateInspect(node);
-    updateSelectedMutationButtonLabels();
+    updateAllMutationViews();
     applyVisualState(dom.search.value);
   });
   sigma.on('enterNode', ({ node }) => { hoveredNode = node; applyVisualState(dom.search.value); });
@@ -796,7 +894,7 @@ export function createApp(bootstrap) {
   renderPathList();
   renderPathCodeView();
   updateSelectedStateViews();
-  updateSelectedMutationButtonLabels();
+  updateAllMutationViews();
   updatePathStatus('No path selected. Focus source or sink, then click a node to assign it.');
   if (selectedNode) updateInspect(selectedNode);
   applyVisualState();
