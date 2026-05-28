@@ -113,6 +113,7 @@ export function createApp(bootstrap) {
   let rightPaneWidth = Number(uiConfig.pane_width ?? 420);
   let rightPaneHeight = Math.max(360, Number(uiConfig.pane_height ?? (window.innerHeight - 32)));
   let autoSelectedBySearch = null;
+  let cameraSelectionInProgress = false;
 
   function jumpCameraToNode(nodeId, duration = 260) {
     if (!graph.hasNode(nodeId)) return;
@@ -120,7 +121,8 @@ export function createApp(bootstrap) {
     const y = graph.getNodeAttribute(nodeId, 'y');
     if (!Number.isFinite(x) || !Number.isFinite(y)) return;
     const camera = sigma.getCamera();
-    camera.animate({ x, y, ratio: camera.getState().ratio }, { duration });
+    const state = camera.getState();
+    camera.animate({ x, y, ratio: state.ratio, angle: state.angle }, { duration });
   }
   function selectNode(nodeId, options = {}) {
     if (!nodeId || !graph.hasNode(nodeId)) return;
@@ -128,7 +130,11 @@ export function createApp(bootstrap) {
     hoveredNode = nodeId;
     updateInspect(nodeId);
     updateSelectedMutationButtonLabels();
-    if (options.moveCamera !== false) jumpCameraToNode(nodeId);
+    if (options.moveCamera !== false && !cameraSelectionInProgress) {
+      cameraSelectionInProgress = true;
+      jumpCameraToNode(nodeId);
+      window.setTimeout(() => { cameraSelectionInProgress = false; }, 280);
+    }
     applyVisualState(dom.search.value);
   }
 
@@ -596,7 +602,7 @@ export function createApp(bootstrap) {
       const only = matches[0].key;
       if (autoSelectedBySearch !== only) {
         autoSelectedBySearch = only;
-        selectNode(only);
+        selectNode(only, { moveCamera: false });
       }
     } else if (!query.trim() || matches.length !== 1) {
       autoSelectedBySearch = null;
@@ -833,7 +839,8 @@ export function createApp(bootstrap) {
   dom.pathList.setAttribute('role', 'listbox');
   dom.pathList.setAttribute('aria-label', 'Path selection list');
   sigma.on('clickNode', ({ node }) => {
-    selectNode(node);
+    selectNode(node, { moveCamera: false });
+    jumpCameraToNode(node);
     if (mainComponentFocusMode) setMainFromNode(node);
     else assignNodeToFocusedField(node);
   });
