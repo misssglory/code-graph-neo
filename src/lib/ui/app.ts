@@ -241,8 +241,44 @@ export function createApp(bootstrap) {
     const codeLines = estimateCodeSize(state, node || {});
     const totalLines = fileLineCount(node?.path || '');
     const percent = totalLines ? (codeLines / totalLines) * 100 : 0;
-    const rounded = percent >= 10 ? percent.toFixed(0) : percent >= 1 ? percent.toFixed(1) : percent.toFixed(2);
-    return codeLines + ' lines · ' + rounded + '% of file';
+    return String(codeLines).padStart(5, ' ') + 'L ' + String(Math.round(percent)).padStart(3, ' ') + '%';
+  }
+
+  function lineNumberForSnippetIndex(node, lineIdx) {
+    return (node?.range?.start?.line || 1) + lineIdx;
+  }
+
+  function highlightedCodeLine(line, matchStart, matchLength) {
+    if (matchStart < 0 || matchLength <= 0) return escapeHtml(line);
+    return escapeHtml(line.slice(0, matchStart)) +
+      '<strong>' + escapeHtml(line.slice(matchStart, matchStart + matchLength)) + '</strong>' +
+      escapeHtml(line.slice(matchStart + matchLength));
+  }
+
+  function codeMatchLineForHint(node, query) {
+    const q = String(query || '').trim().toLowerCase();
+    if (!q || parseFileLineQuery(q) || !searchMatchOptions().code) return null;
+    const snippet = sourcePreview(state, node || {});
+    const snippetLines = String(snippet || '').split('\n');
+    for (let idx = 0; idx < snippetLines.length; idx++) {
+      const matchStart = snippetLines[idx].toLowerCase().indexOf(q);
+      if (matchStart >= 0) {
+        return {
+          line: lineNumberForSnippetIndex(node, idx),
+          html: highlightedCodeLine(snippetLines[idx].trim(), Math.max(0, matchStart - (snippetLines[idx].length - snippetLines[idx].trimStart().length)), q.length)
+        };
+      }
+    }
+
+    const fileContent = state.fileContentByPath.get(node?.path || '') || '';
+    const fileLines = String(fileContent || '').split('\n');
+    for (let idx = 0; idx < fileLines.length; idx++) {
+      const matchStart = fileLines[idx].toLowerCase().indexOf(q);
+      if (matchStart >= 0) {
+        return { line: idx + 1, html: highlightedCodeLine(fileLines[idx].trim(), Math.max(0, matchStart - (fileLines[idx].length - fileLines[idx].trimStart().length)), q.length) };
+      }
+    }
+    return null;
   }
 
 
@@ -1029,7 +1065,9 @@ export function createApp(bootstrap) {
     dom.searchHints.innerHTML = options.join('');
     dom.searchHintsOverlay.innerHTML = candidates.map(({ node }) => {
       const fileColor = fileColorByPath.get(node.path || '') || '#8f9bb3';
-      return '<button class="hint-row" data-hint-node="' + escapeHtml(node.key) + '"><span>' + escapeHtml(node.label || node.key) + '</span><span style="color:' + escapeHtml(fileColor) + '">' + escapeHtml(node.path || 'unknown') + ' · ' + escapeHtml(nodeLineShareText(node)) + '</span></button>';
+      const codeMatch = codeMatchLineForHint(node, q);
+      const codeMatchHtml = codeMatch ? '<span class="hint-code-line"><span class="hint-code-ln">L' + escapeHtml(codeMatch.line) + '</span><span class="hint-code-src">' + codeMatch.html + '</span></span>' : '';
+      return '<button class="hint-row" data-hint-node="' + escapeHtml(node.key) + '"><span class="hint-main"><span>' + escapeHtml(node.label || node.key) + '</span>' + codeMatchHtml + '</span><span class="hint-meta" style="color:' + escapeHtml(fileColor) + '">' + escapeHtml(node.path || 'unknown') + ' · ' + escapeHtml(nodeLineShareText(node)) + '</span></button>';
     }).join('');
     dom.searchHintsOverlay.hidden = candidates.length === 0;
   }
