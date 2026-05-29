@@ -6,7 +6,7 @@ import 'https://esm.sh/prismjs@1.29.0/components/prism-rust';
 import { createDom } from './dom.ts';
 import { buildGraphState, recomputeMainComponentState, computeNodeSize, sourcePreview, resolveNodeInput, estimateCodeSize, findNodePath, edgeKeyBetween } from './graph-state.ts';
 import { applyPaneTransparency, setActiveTab, setSidebarCollapsed } from './layout.ts';
-import { escapeHtml, renderCodeBlock } from './render.ts';
+import { escapeAttr, escapeHtml, renderCodeBlock } from './render.ts';
 
 function hashString(input) {
   let h = 2166136261;
@@ -153,6 +153,8 @@ export function createApp(bootstrap) {
   let sigma = null;
   let graphSnapshots = [];
   let currentSnapshotPath = 'graph.json';
+  let graphSnapshotSort = 'time-desc';
+  let selectedSnapshotComparePath = '';
 
   function fileLineCount(path) {
     const content = String(state.fileContentByPath.get(path || '') || '');
@@ -188,23 +190,70 @@ export function createApp(bootstrap) {
     if (n >= 1024) return (n / 1024).toFixed(1) + ' KB';
     return n + ' B';
   }
+  function sortedGraphSnapshots() {
+    const snapshots = [...graphSnapshots];
+    snapshots.sort((a, b) => {
+      if (graphSnapshotSort === 'time-asc') return (a.mtimeMs || 0) - (b.mtimeMs || 0) || String(a.path).localeCompare(String(b.path));
+      if (graphSnapshotSort === 'name-asc') return String(a.path).localeCompare(String(b.path));
+      if (graphSnapshotSort === 'name-desc') return String(b.path).localeCompare(String(a.path));
+      return (b.mtimeMs || 0) - (a.mtimeMs || 0) || String(a.path).localeCompare(String(b.path));
+    });
+    return snapshots;
+  }
   function renderSnapshotPicker() {
-    if (!dom.graphSnapshotSelect) return;
+    if (!dom.graphSnapshotList) return;
     if (!graphSnapshots.length) {
-      dom.graphSnapshotSelect.innerHTML = '<option value="">No public/*.json snapshots found</option>';
-      if (dom.graphSnapshotList) dom.graphSnapshotList.innerHTML = '<div class="path-empty">No JSON graph snapshots found in public/.</div>';
+      dom.graphSnapshotList.innerHTML = '<div class="path-empty">No JSON graph snapshots found in public/.</div>';
+      if (dom.graphSnapshotDetails) dom.graphSnapshotDetails.textContent = 'No graph snapshots are available to compare.';
       return;
     }
-    dom.graphSnapshotSelect.innerHTML = graphSnapshots.map((snapshot) => {
-      const label = snapshot.path + ' · modified ' + formatSnapshotDate(snapshot.mtime);
-      return '<option value="' + escapeHtml(snapshot.path) + '">' + escapeHtml(label) + '</option>';
+    dom.graphSnapshotList.innerHTML = sortedGraphSnapshots().map((snapshot) => {
+      const active = snapshot.path === currentSnapshotPath ? ' · current' : '';
+      const selected = snapshot.path === selectedSnapshotComparePath ? ' data-selected="true"' : '';
+      return '<div class="snapshot-row" data-graph-snapshot-path="' + escapeAttr(snapshot.path) + '"' + selected + '><div><div class="snapshot-name">' + escapeHtml(snapshot.path) + escapeHtml(active) + '</div><div class="snapshot-meta">Last modified: ' + escapeHtml(formatSnapshotDate(snapshot.mtime)) + ' · ' + escapeHtml(formatSnapshotSize(snapshot.size)) + '</div></div><button class="btn snapshot-open-btn" type="button" data-open-graph-snapshot="' + escapeAttr(snapshot.path) + '">Open</button></div>';
     }).join('');
-    dom.graphSnapshotSelect.value = graphSnapshots.some((snapshot) => snapshot.path === currentSnapshotPath) ? currentSnapshotPath : graphSnapshots[0].path;
-    if (dom.graphSnapshotList) {
-      dom.graphSnapshotList.innerHTML = graphSnapshots.map((snapshot) => {
-        const active = snapshot.path === currentSnapshotPath ? ' · current' : '';
-        return '<div class="snapshot-row"><div class="snapshot-name">' + escapeHtml(snapshot.path) + escapeHtml(active) + '</div><div class="snapshot-meta">Last modified: ' + escapeHtml(formatSnapshotDate(snapshot.mtime)) + ' · ' + escapeHtml(formatSnapshotSize(snapshot.size)) + '</div></div>';
-      }).join('');
+    dom.graphSnapshotList.querySelectorAll('[data-open-graph-snapshot]').forEach((button) => {
+      button.addEventListener('click', (event) => {
+        event.stopPropagation();
+        openGraphSnapshot(button.getAttribute('data-open-graph-snapshot') || '');
+      });
+    });
+    dom.graphSnapshotList.querySelectorAll('[data-graph-snapshot-path]').forEach((row) => {
+      row.addEventListener('click', () => compareGraphSnapshot(row.getAttribute('data-graph-snapshot-path') || ''));
+    });
+  }
+  function graphKeySet(graphData) {
+    return new Set((graphData?.nodes || []).map((node) => node.key));
+  }
+  function sampleNodeList(keys, graphData) {
+    const byKey = new Map((graphData?.nodes || []).map((node) => [node.key, node]));
+    const sample = keys.slice(0, 20).map((key) => {
+      const node = byKey.get(key);
+      return escapeHtml((node?.label || key) + (node?.path ? ' · ' + node.path : ''));
+    });
+    const more = keys.length > sample.length ? '<br>…and ' + (keys.length - sample.length) + ' more' : '';
+    return sample.length ? sample.join('<br>') + more : 'none';
+  }
+  async function compareGraphSnapshot(path) {
+    if (!path || !dom.graphSnapshotDetails) return;
+    selectedSnapshotComparePath = path;
+    renderSnapshotPicker();
+    dom.graphSnapshotDetails.textContent = 'Loading comparison for ' + path + '…';
+    try {
+      const response = await fetch('/api/graph?path=' + encodeURIComponent(path));
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || ('HTTP ' + response.status));
+      const candidate = data.graph || {};
+      const candidateKeys = graphKeySet(candidate);
+      const currentKeys = graphKeySet(state.raw);
+      const notPresent = [...candidateKeys].filter((key) => !currentKeys.has(key)).sort();
+      const missing = [...currentKeys].filter((key) => !candidateKeys.has(key)).sort();
+      dom.graphSnapshotDetails.innerHTML = '<strong>' + escapeHtml(path) + '</strong><br>' +
+        'Nodes: ' + (candidate.nodes || []).length + ' · Edges: ' + (candidate.edges || []).length + '<br><br>' +
+        '<strong>Not present in currently open graph</strong> (' + notPresent.length + ')<br>' + sampleNodeList(notPresent, candidate) + '<br><br>' +
+        '<strong>Missing from selected graph</strong> (' + missing.length + ')<br>' + sampleNodeList(missing, state.raw);
+    } catch (error) {
+      dom.graphSnapshotDetails.textContent = 'Could not compare ' + path + ': ' + (error?.message || error);
     }
   }
   async function refreshSnapshotList() {
@@ -265,6 +314,8 @@ export function createApp(bootstrap) {
       if (!response.ok) throw new Error(data.error || ('HTTP ' + response.status));
       state = buildGraphState(data.graph);
       currentSnapshotPath = data.snapshot?.path || path;
+      selectedSnapshotComparePath = '';
+      if (dom.graphSnapshotDetails) dom.graphSnapshotDetails.textContent = 'Click a graph row to compare it with the currently open graph.';
       rebuildGraphFromState({ resetSelections: true });
       refreshGraphDependentViews();
       renderSnapshotPicker();
@@ -288,6 +339,7 @@ export function createApp(bootstrap) {
   let renderEdgeDirection = Boolean(uiConfig.render_edge_direction ?? true);
   let focusedPathField = 'from';
   let showLineNumbers = Boolean(uiConfig.show_line_numbers ?? false);
+  let wordWrapCode = Boolean(uiConfig.word_wrap_code ?? false);
   let nodeSizeMode = graphConfig.node_size_mode || 'status';
   let nodeSizeBase = Number(graphConfig.node_size_base ?? 11);
   let nodeSizeCodeFactor = Number(graphConfig.node_size_code_factor ?? 0.015);
@@ -509,7 +561,7 @@ export function createApp(bootstrap) {
       const header = '// file: ' + fileName;
       const code = header + '\n' + (preview || 'No source snippet available');
       return '<div><div class="path-code-file">' + escapeHtml(String(idx)) + '. ' + escapeHtml(node?.label || nodeId) + '</div>' +
-        renderCodeBlock(Prism, code, startLine, showLineNumbers) + '</div>';
+        renderCodeBlock(Prism, code, startLine, showLineNumbers, wordWrapCode) + '</div>';
     }).join('');
   }
   function updatePathSelectionSummary() {
@@ -600,7 +652,7 @@ export function createApp(bootstrap) {
       'status: ' + escapeHtml(status) + '<br><br>' +
       '<strong>Calls</strong>: ' + escapeHtml(outgoingList.join(', ') || 'none') + '<br><br>' +
       '<strong>Called by</strong>: ' + escapeHtml(incomingList.join(', ') || 'none') + '<br><br>' +
-      '<strong>Source</strong>' + renderCodeBlock(Prism, preview || 'No source snippet available', startLine, showLineNumbers);
+      '<strong>Source</strong>' + renderCodeBlock(Prism, preview || 'No source snippet available', startLine, showLineNumbers, wordWrapCode);
   }
 
   function matchesQuery(node, attrs, q, matchOptions = searchMatchOptions()) {
@@ -791,7 +843,7 @@ export function createApp(bootstrap) {
       const preview = sourcePreview(state, node || {});
       const startLine = node?.range?.start?.line || 1;
       const code = '// file: ' + (node?.path || 'unknown') + '\n' + (preview || 'No source snippet available');
-      return '<div><div class="path-code-file">' + escapeHtml(String(idx)) + '. ' + escapeHtml(node?.label || nodeId) + '</div>' + renderCodeBlock(Prism, code, startLine, showLineNumbers) + '</div>';
+      return '<div><div class="path-code-file">' + escapeHtml(String(idx)) + '. ' + escapeHtml(node?.label || nodeId) + '</div>' + renderCodeBlock(Prism, code, startLine, showLineNumbers, wordWrapCode) + '</div>';
     }).join('');
   }
   function updateSelectedMutationButtonLabels() {
@@ -1107,8 +1159,24 @@ export function createApp(bootstrap) {
     if (dom.pathFromInput.value || dom.pathToInput.value) runPathSearch();
     else updatePathStatus(applyDirections ? 'Directed traversal enabled.' : 'Ignoring edge direction.');
   });
+  dom.rightPane?.addEventListener('click', async (event) => {
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+    const button = target.closest('[data-copy-code]');
+    if (!button) return;
+    const original = button.textContent;
+    try {
+      await navigator.clipboard.writeText(decodeURIComponent(button.getAttribute('data-copy-code') || ''));
+      button.textContent = 'Copied';
+      setTimeout(() => { button.textContent = original || 'Copy'; }, 1200);
+    } catch {
+      button.textContent = 'Failed';
+      setTimeout(() => { button.textContent = original || 'Copy'; }, 1200);
+    }
+  });
   dom.renderEdgeDirectionToggle.addEventListener('change', () => { renderEdgeDirection = dom.renderEdgeDirectionToggle.checked; sigma.refresh(); });
   dom.lineNumbersToggle.addEventListener('change', () => { showLineNumbers = dom.lineNumbersToggle.checked; if (selectedNode) updateInspect(selectedNode); renderPathCodeView(); updateSelectedStateViews(); updateAllMutationViews(); });
+  dom.wordWrapToggle.addEventListener('change', () => { wordWrapCode = dom.wordWrapToggle.checked; if (selectedNode) updateInspect(selectedNode); renderPathCodeView(); updateSelectedStateViews(); });
   dom.layoutModeSelect.addEventListener('change', () => {
     layoutMode = dom.layoutModeSelect.value;
     const next = new URL(window.location.href);
@@ -1137,8 +1205,7 @@ export function createApp(bootstrap) {
     if (chosen) setMainFromNode(chosen.key);
   });
   dom.graphSnapshotRefreshBtn?.addEventListener('click', refreshSnapshotList);
-  dom.graphSnapshotOpenBtn?.addEventListener('click', () => openGraphSnapshot(dom.graphSnapshotSelect?.value || ''));
-  dom.graphSnapshotSelect?.addEventListener('keydown', (event) => { if (event.key === 'Enter') openGraphSnapshot(dom.graphSnapshotSelect.value); });
+  dom.graphSnapshotSort?.addEventListener('change', () => { graphSnapshotSort = dom.graphSnapshotSort.value; renderSnapshotPicker(); });
   dom.sidebarTabs.forEach((btn) => btn.addEventListener('click', () => setActiveTab(dom.sidebarTabs, dom.sidebarPanels, btn.dataset.tabButton)));
   dom.pathFromInput.addEventListener('focus', () => { focusedPathField = 'from'; syncFocusedFieldUI(); });
   dom.pathToInput.addEventListener('focus', () => { focusedPathField = 'to'; syncFocusedFieldUI(); });
@@ -1165,8 +1232,10 @@ export function createApp(bootstrap) {
   dom.sizeCodeFactorInput.value = String(nodeSizeCodeFactor);
   dom.transparencyInput.value = String(paneTransparency);
   dom.lineNumbersToggle.checked = showLineNumbers;
+  dom.wordWrapToggle.checked = wordWrapCode;
   dom.directedToggle.checked = applyDirections;
   dom.renderEdgeDirectionToggle.checked = renderEdgeDirection;
+  if (dom.graphSnapshotSort) dom.graphSnapshotSort.value = graphSnapshotSort;
   dom.sizeBaseValue.textContent = String(nodeSizeBase);
   dom.sizeCodeFactorValue.textContent = nodeSizeCodeFactor.toFixed(3);
   applyPaneTransparency(document.documentElement, paneTransparency, dom.transparencyValue);
