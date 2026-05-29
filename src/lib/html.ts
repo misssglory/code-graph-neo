@@ -86,14 +86,21 @@ export function renderHtml(graphData: GraphData, config: any = {}): string {
     .pathswatch { background: var(--path); }
     .status-box { margin-top: 8px; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--border); background: rgba(255,255,255,0.04); color: var(--muted); font-size: 12px; line-height: 1.45; }
     .snapshot-list { display: grid; gap: 8px; margin-top: 12px; }
-    .snapshot-row { display: grid; gap: 3px; padding: 10px; border: 1px solid var(--border); border-radius: 10px; background: rgba(255,255,255,0.035); }
+    .snapshot-row { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: start; padding: 10px; border: 1px solid var(--border); border-radius: 10px; background: rgba(255,255,255,0.035); color: var(--text); text-align: left; cursor: pointer; }
+    .snapshot-row:hover, .snapshot-row[data-selected="true"] { background: rgba(255,255,255,0.07); border-color: rgba(255,255,255,0.24); }
     .snapshot-name { color: var(--text); font-family: var(--mono); font-size: 12px; overflow-wrap: anywhere; }
-    .snapshot-meta { color: var(--muted); font-size: 11px; }
-    .code-block { margin-top: 8px; background: rgba(0,0,0,0.42); border: 1px solid rgba(255,255,255,0.08); border-radius: 10px; overflow: auto; padding: 12px; font-family: var(--mono); font-size: 12px; line-height: 1.55; white-space: pre; }
-    .code-block.with-lines { padding: 0; }
+    .snapshot-meta { color: var(--muted); font-size: 11px; margin-top: 3px; }
+    .snapshot-open-btn { white-space: nowrap; padding: 7px 10px; }
+    .code-block-wrap { position: relative; max-width: 100%; min-width: 0; }
+    .code-copy-btn { position: absolute; top: 14px; right: 8px; z-index: 2; padding: 5px 8px; font-size: 11px; }
+    .code-block { margin-top: 8px; max-width: 100%; background: rgba(0,0,0,0.42); border: 1px solid rgba(255,255,255,0.08); border-radius: 10px; overflow-x: auto; overflow-y: auto; padding: 12px; padding-right: 58px; font-family: var(--mono); font-size: 12px; line-height: 1.55; white-space: pre; }
+    .code-block.with-lines { padding: 0; padding-right: 58px; }
     .code-row { display: grid; grid-template-columns: auto 1fr; min-width: max-content; }
     .code-ln { user-select: none; padding: 0 12px; text-align: right; color: #707070; border-right: 1px solid rgba(255,255,255,0.08); background: rgba(255,255,255,0.02); }
     .code-src { display: block; padding: 0 12px; white-space: pre; }
+    .code-block.word-wrap { white-space: pre-wrap; overflow-x: hidden; }
+    .code-block.word-wrap .code-row { min-width: 0; }
+    .code-block.word-wrap .code-src { white-space: pre-wrap; overflow-wrap: anywhere; }
     .path-list { display: grid; gap: 8px; margin-top: 12px; }
     .path-found-list { display:flex; gap:8px; overflow:auto; padding-bottom:2px; margin-top:8px; }
     .path-pill { white-space: nowrap; padding: 6px 10px; font-size: 12px; }
@@ -111,7 +118,8 @@ export function renderHtml(graphData: GraphData, config: any = {}): string {
     .selection-accent { display: inline-flex; align-items: center; gap: 8px; }
     .selection-dot { width: 8px; height: 8px; border-radius: 999px; flex: 0 0 auto; }
     .path-empty { color: var(--muted); font-size: 13px; }
-    .path-code-view { display: grid; gap: 10px; margin-top: 12px; }
+    .path-code-view { display: grid; gap: 10px; margin-top: 12px; min-width: 0; }
+    .path-code-view > div { min-width: 0; }
     .path-code-file { margin: 0; color: #d0d8e8; font-family: var(--mono); font-size: 12px; }
     .selected-item { position: relative; padding-right: 120px; }
     .selected-remove-btn { position:absolute; right:10px; top:10px; padding:6px 10px; }
@@ -166,10 +174,10 @@ export function renderHtml(graphData: GraphData, config: any = {}): string {
         <div class="tab-row">
           <button class="tab-btn" data-tab-button="code-search" data-active="true">code search</button>
           <button class="tab-btn" data-tab-button="settings" data-active="false">settings</button>
-          <button class="tab-btn" data-tab-button="graphs" data-active="false">graphs</button>
           <button class="tab-btn" data-tab-button="find-path" data-active="false">find path</button>
           <button class="tab-btn" data-tab-button="selected-nodes" data-active="false">selected nodes</button>
           <button class="tab-btn" data-tab-button="bulk-text" data-active="false">bulk text</button>
+          <button class="tab-btn" data-tab-button="graphs" data-active="false">graphs</button>
         </div>
         <div class="sidebar-content">
           <section data-tab-panel="code-search">
@@ -194,13 +202,18 @@ export function renderHtml(graphData: GraphData, config: any = {}): string {
           </section>
           <section data-tab-panel="graphs" hidden>
             <div class="section-card">
-              <h2>Open graph snapshot</h2>
-              <select id="graph-snapshot-select" class="select-input"></select>
-              <div class="row" style="margin-top:8px;">
-                <button id="graph-snapshot-open" class="btn">Open selected graph</button>
+              <h2>Graph snapshots</h2>
+              <div class="row">
+                <select id="graph-snapshot-sort" class="select-input" aria-label="Sort graph snapshots">
+                  <option value="time-desc">time newest first</option>
+                  <option value="time-asc">time oldest first</option>
+                  <option value="name-asc">name A-Z</option>
+                  <option value="name-desc">name Z-A</option>
+                </select>
                 <button id="graph-snapshot-refresh" class="btn">Refresh list</button>
               </div>
               <div id="graph-snapshot-status" class="status-box">Loading snapshots from public/*.json…</div>
+              <div id="graph-snapshot-details" class="status-box">Click a graph row to compare it with the currently open graph.</div>
               <div id="graph-snapshot-list" class="snapshot-list"></div>
             </div>
           </section>
@@ -239,6 +252,7 @@ export function renderHtml(graphData: GraphData, config: any = {}): string {
             <div class="section-card">
               <h2>View settings</h2>
               <div class="checkbox-row"><input id="line-numbers-toggle" type="checkbox" /><label for="line-numbers-toggle">Show line numbers in source view</label></div>
+              <div class="checkbox-row"><input id="word-wrap-toggle" type="checkbox" /><label for="word-wrap-toggle">Word wrap code views</label></div>
               <div class="checkbox-row"><input id="render-edge-direction-toggle" type="checkbox" /><label for="render-edge-direction-toggle">Render edge direction</label></div>
               <h3>Layout</h3>
               <select id="layout-mode" class="select-input"><option value="columns">columns</option><option value="forceatlas2">forceatlas2</option></select>
