@@ -6,6 +6,9 @@ export function createDom() {
     selection: document.getElementById('selection'),
     search: document.getElementById('search'),
     searchHints: document.getElementById('search-hints'),
+    searchMatchName: document.getElementById('search-match-name'),
+    searchMatchFilename: document.getElementById('search-match-filename'),
+    searchMatchCode: document.getElementById('search-match-code'),
 
     searchHintsOverlay: document.getElementById('search-hints-overlay'),
     searchAddToStateBtn: document.getElementById('search-add-to-state'),
