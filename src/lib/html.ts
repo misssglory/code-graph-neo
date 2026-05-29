@@ -153,6 +153,13 @@ export function renderHtml(graphData: GraphData, config: any = {}): string {
     .bulk-match-token { display: inline-flex; align-items: center; gap: 4px; margin: 0 1px; border-radius: 6px; border: 1px solid var(--path); color: #081014; background: var(--path); padding: 0 4px; font-family: var(--mono); font-size: 0.95em; cursor: pointer; animation: bulkMatchPulse 1.35s ease-out 1; }
     .bulk-match-token[data-enabled="false"] { color: var(--path); background: transparent; border-style: dashed; }
     .bulk-match-node { color: inherit; opacity: 0.74; font-size: 0.82em; }
+    .bulk-match-options { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px; }
+    .bulk-match-options label { display: grid; gap: 4px; color: var(--muted); font-size: 12px; }
+    .bulk-match-options select { width: 100%; }
+    .bulk-progress { display: grid; gap: 5px; margin-top: 8px; }
+    .bulk-progress-track { height: 7px; overflow: hidden; border-radius: 999px; border: 1px solid rgba(255,255,255,0.10); background: rgba(255,255,255,0.06); }
+    .bulk-progress-bar { width: 0%; height: 100%; border-radius: inherit; background: linear-gradient(90deg, var(--path), var(--accent)); transition: width 120ms ease; }
+    .bulk-progress-label { color: var(--muted); font-size: 11px; }
     .bulk-match-annotations { margin-top: 10px; border: 1px solid var(--border); border-radius: 12px; background: rgba(255,255,255,0.035); padding: 10px; }
     .bulk-match-title { color: var(--muted); font-size: 12px; margin-bottom: 8px; }
     .bulk-match-list { display: grid; gap: 6px; max-height: 220px; overflow: auto; }
@@ -260,8 +267,25 @@ export function renderHtml(graphData: GraphData, config: any = {}): string {
           <section data-tab-panel="bulk-text" hidden>
             <div class="section-card">
               <h2>Bulk text selection</h2>
-              <textarea id="bulk-text-input" class="textarea-input" placeholder="Paste text here. Words, file stems, and file:line forms are resolved as graph nodes. Separators like :: and . are considered word boundaries."></textarea>
+              <textarea id="bulk-text-input" class="textarea-input" placeholder="Paste text here. Words match node names; log locations like src/main.rs:55 can also match by filename."></textarea>
+              <div class="bulk-match-options">
+                <label for="bulk-name-match-mode">Node names
+                  <select id="bulk-name-match-mode" class="input">
+                    <option value="full" selected>Full name</option>
+                    <option value="fuzzy">Fuzzy / previous</option>
+                    <option value="none">None</option>
+                  </select>
+                </label>
+                <label for="bulk-filename-match-mode">Filenames
+                  <select id="bulk-filename-match-mode" class="input">
+                    <option value="full" selected>Full filename</option>
+                    <option value="fuzzy">Fuzzy / previous</option>
+                    <option value="none">None</option>
+                  </select>
+                </label>
+              </div>
               <div class="checkbox-row"><input id="bulk-render-markdown" type="checkbox" /><label for="bulk-render-markdown">Render bulk text preview as markdown</label></div>
+              <div id="bulk-progress" class="bulk-progress" hidden><div class="bulk-progress-track" role="progressbar" aria-label="Bulk text match progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><div id="bulk-progress-bar" class="bulk-progress-bar"></div></div><div id="bulk-progress-label" class="bulk-progress-label">Waiting to match text…</div></div>
               <div class="bulk-preview"><div class="bulk-preview-title"><span>Annotated bulk text</span><span>Click a highlighted part to include/exclude it</span></div><div id="bulk-annotated-text" class="bulk-annotated-text" data-render-mode="raw"><div class="mutation-hint-empty">Paste text to preview matched parts.</div></div></div>
               <div class="row" style="margin-top:8px;"><button id="bulk-add" class="btn">Add text nodes (+0 nodes · 0 lines)</button><button id="bulk-remove" class="btn">Remove text nodes (-0 nodes · 0 lines)</button></div>
               <div id="bulk-status" class="status-box">No text nodes resolved yet.</div>
