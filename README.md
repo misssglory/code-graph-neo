@@ -13,10 +13,10 @@ Open http://localhost:3000
 
 ## Input
 
-By default the app reads `public/paste.txt`.
+By default the app opens `public/graph.json`. The **graphs** tab lists all `.json` snapshots in `public/`, including their last modification time, and can switch the viewer to another snapshot without restarting the server.
 
 You can override it with:
 
 ```bash
-CODEGRAPH_INPUT=/path/to/paste.txt bun run dev
+CODEGRAPH_INPUT=/path/to/graph.json bun run dev
 ```
