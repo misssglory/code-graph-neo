@@ -8,6 +8,7 @@ export function createDom() {
     searchHints: document.getElementById('search-hints'),
 
     searchHintsOverlay: document.getElementById('search-hints-overlay'),
+    searchAddToStateBtn: document.getElementById('search-add-to-state'),
     selectedAddNodeBtn: document.getElementById('selected-add-node'),
     selectedAddIncomingBtn: document.getElementById('selected-add-incoming'),
     selectedAddOutgoingBtn: document.getElementById('selected-add-outgoing'),

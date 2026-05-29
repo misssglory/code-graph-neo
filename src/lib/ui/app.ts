@@ -142,6 +142,21 @@ export function createApp(bootstrap) {
   const state = buildGraphState(raw);
   const fileColorByPath = makeFileColorMap(state.raw.nodes.map((n) => n.path || ''), palette);
 
+  function fileLineCount(path) {
+    const content = String(state.fileContentByPath.get(path || '') || '');
+    if (content) return Math.max(1, content.split('\n').length);
+    const nodes = state.nodesByPath.get(path || 'unknown') || [];
+    const largestRangeEnd = nodes.reduce((max, node) => Math.max(max, node.range?.end?.line || 0), 0);
+    return Math.max(1, largestRangeEnd);
+  }
+  function nodeLineShareText(node) {
+    const codeLines = estimateCodeSize(state, node || {});
+    const totalLines = fileLineCount(node?.path || '');
+    const percent = totalLines ? (codeLines / totalLines) * 100 : 0;
+    const rounded = percent >= 10 ? percent.toFixed(0) : percent >= 1 ? percent.toFixed(1) : percent.toFixed(2);
+    return codeLines + ' lines · ' + rounded + '% of file';
+  }
+
   let hoveredNode = null;
   let selectedNode = raw.mainKey || null;
   let applyDirections = Boolean(graphConfig.apply_directions ?? true);
@@ -483,6 +498,16 @@ export function createApp(bootstrap) {
       || fileContent.toLowerCase().includes(q)
       || String(node.sourceSnippet || '').toLowerCase().includes(q);
   }
+  function searchMatchedNodeIds(query = '') {
+    const q = query.trim().toLowerCase();
+    if (!q) return [];
+    const ids = [];
+    for (const node of state.raw.nodes) {
+      const attrs = graph.getNodeAttributes(node.key);
+      if (matchesQuery(node, attrs, q)) ids.push(node.key);
+    }
+    return ids;
+  }
   function uniqueNodeIds(ids) {
     return [...new Set((ids || []).filter((id) => id && state.rawNodeByKey.has(id)))];
   }
@@ -595,8 +620,18 @@ export function createApp(bootstrap) {
     dom.bulkMatchAnnotations.innerHTML = '<div class="bulk-match-title">Matched text parts → nodes</div><div class="bulk-match-list">' + rows + overflow + '</div>';
   }
   function updateAllMutationViews() {
+    updateSearchMutationViews(dom.search?.value || '');
     updateSelectedMutationButtonLabels();
     updateBulkTextMutationViews();
+  }
+
+  function updateSearchMutationViews(query = '') {
+    if (!dom.searchAddToStateBtn) return;
+    const summary = mutationSummary(searchMatchedNodeIds(query), 'add');
+    dom.searchAddToStateBtn.textContent = formatMutationLabel('Add search matches', summary, '+');
+    dom.searchAddToStateBtn.title = query.trim()
+      ? summary.lines + ' lines across ' + summary.nodeIds.length + ' currently matching node(s) will be added to selected state.'
+      : 'Enter a search query to choose nodes before adding them to selected state.';
   }
 
   function updateSelectedStateViews() {
@@ -672,6 +707,8 @@ export function createApp(bootstrap) {
     const q = query.trim();
     if (!q) {
       dom.searchHints.innerHTML = '';
+      dom.searchHintsOverlay.innerHTML = '';
+      dom.searchHintsOverlay.hidden = true;
       return;
     }
     const candidates = state.raw.nodes
@@ -690,11 +727,15 @@ export function createApp(bootstrap) {
       options.push(`<option value="${escapeHtml(value)}"></option>`);
     }
     dom.searchHints.innerHTML = options.join('');
-    dom.searchHintsOverlay.innerHTML = candidates.map(({ node }) => { const fileColor = fileColorByPath.get(node.path || '') || '#8f9bb3'; return '<button class="hint-row" data-hint-node="' + escapeHtml(node.key) + '"><span>' + escapeHtml(node.label || node.key) + '</span><span style="color:' + escapeHtml(fileColor) + '">' + escapeHtml(node.path || 'unknown') + '</span></button>'; }).join('');
+    dom.searchHintsOverlay.innerHTML = candidates.map(({ node }) => {
+      const fileColor = fileColorByPath.get(node.path || '') || '#8f9bb3';
+      return '<button class="hint-row" data-hint-node="' + escapeHtml(node.key) + '"><span>' + escapeHtml(node.label || node.key) + '</span><span style="color:' + escapeHtml(fileColor) + '">' + escapeHtml(node.path || 'unknown') + ' · ' + escapeHtml(nodeLineShareText(node)) + '</span></button>';
+    }).join('');
     dom.searchHintsOverlay.hidden = candidates.length === 0;
   }
   function applyVisualState(query = '') {
     updateSearchHints(query);
+    updateSearchMutationViews(query);
     const q = query.trim().toLowerCase();
     const hoverSet = hoveredNode ? state.neighbors.get(hoveredNode) || new Set([hoveredNode]) : null;
     const hasPath = pathNodeSet.size > 0;
@@ -890,6 +931,13 @@ export function createApp(bootstrap) {
 
   dom.search.addEventListener('input', () => applyVisualState(dom.search.value));
   dom.searchHintsOverlay.addEventListener('click', (event) => { const btn = event.target.closest('[data-hint-node]'); if (!btn) return; const nodeId = btn.getAttribute('data-hint-node'); if (!nodeId) return; dom.search.value = graph.getNodeAttribute(nodeId, 'label') || nodeId; selectedNode = nodeId; hoveredNode = nodeId; updateInspect(nodeId); dom.searchHintsOverlay.hidden = true; applyVisualState(dom.search.value); });
+  dom.searchAddToStateBtn?.addEventListener('click', () => {
+    const summary = mutationSummary(searchMatchedNodeIds(dom.search.value), 'add');
+    summary.nodeIds.forEach((nodeId) => selectedStateNodeSet.add(nodeId));
+    updateSelectedStateViews();
+    updateAllMutationViews();
+    applyVisualState(dom.search.value);
+  });
   dom.pathGoBtn.addEventListener('click', runPathSearch);
   dom.pathClearBtn.addEventListener('click', () => {
     foundPaths = [];
