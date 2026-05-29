@@ -62,9 +62,14 @@ export function renderHtml(graphData: GraphData, config: any = {}): string {
     .search, .text-input, .select-input, .range-input, .textarea-input { width: 100%; padding: 10px 12px; border-radius: 10px; background: rgba(255,255,255,0.04); border: 1px solid var(--border); color: var(--text); font-family: var(--mono); }
     .textarea-input { min-height: 280px; resize: vertical; line-height: 1.45; }
     .search-hints-overlay { width: 100%; margin-top: 8px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.15); background: rgba(0,0,0,0.95); overflow: hidden; }
-    .hint-row { width: 100%; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; text-align: left; border: 0; border-bottom: 1px solid rgba(255,255,255,0.07); background: transparent; color: #dce2ef; padding: 8px 10px; font-family: var(--mono); cursor: pointer; }
-    .hint-row:last-child { border-bottom: 0; }
+    .hint-row { --hint-border-color: rgba(255,255,255,0.22); --hint-file-color: #8f9bb3; width: 100%; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; text-align: left; border: 1px solid transparent; border-left: 4px solid var(--hint-border-color); border-bottom-color: rgba(255,255,255,0.07); background: transparent; color: #dce2ef; padding: 8px 10px; font-family: var(--mono); cursor: pointer; }
+    .hint-row:last-child { border-bottom-color: transparent; }
     .hint-row:hover { background: rgba(255,255,255,0.06); }
+    .hint-row[data-selected-state="true"] { background: rgba(180,141,255,0.10); border-color: rgba(180,141,255,0.34); border-left-color: var(--hint-border-color); }
+    .hint-row[data-focused-node="true"] { background: rgba(255,213,79,0.12); border-color: rgba(255,213,79,0.48); border-left-color: var(--hint-border-color); }
+    .hint-state-badge { display: inline-block; margin-left: 6px; padding: 1px 5px; border-radius: 999px; border: 1px solid currentColor; color: var(--hint-file-color); font-size: 10px; line-height: 1.2; vertical-align: middle; }
+    .hint-state-badge[data-kind="focused"] { color: var(--path); }
+    .hint-state-badge[data-kind="selected"] { color: #d4c1ff; }
     .hint-main { min-width: 0; display: grid; gap: 3px; }
     .hint-meta { white-space: pre; }
     .hint-code-line { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 8px; color: var(--muted); font-size: 11px; }

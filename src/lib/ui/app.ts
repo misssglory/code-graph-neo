@@ -188,10 +188,8 @@ function nodeScoreForHint(node, query, matchOptions = { name: true, filename: tr
     }
   }
   if (matchOptions.code && stateRef) {
-    const snippet = String(node.sourceSnippet || '').toLowerCase();
-    const fileContent = String(stateRef.fileContentByPath.get(node.path || '') || '').toLowerCase();
-    if (snippet.includes(q)) score = Math.max(score, 120);
-    else if (fileContent.includes(q)) score = Math.max(score, 80);
+    const nodeCode = sourcePreview(stateRef, node || {}).toLowerCase();
+    if (nodeCode.includes(q)) score = Math.max(score, 120);
   }
   return score;
 }
@@ -270,14 +268,6 @@ export function createApp(bootstrap) {
       }
     }
 
-    const fileContent = state.fileContentByPath.get(node?.path || '') || '';
-    const fileLines = String(fileContent || '').split('\n');
-    for (let idx = 0; idx < fileLines.length; idx++) {
-      const matchStart = fileLines[idx].toLowerCase().indexOf(q);
-      if (matchStart >= 0) {
-        return { line: idx + 1, html: highlightedCodeLine(fileLines[idx].trim(), Math.max(0, matchStart - (fileLines[idx].length - fileLines[idx].trimStart().length)), q.length) };
-      }
-    }
     return null;
   }
 
@@ -463,6 +453,7 @@ export function createApp(bootstrap) {
   let pathEdgeSet = new Set();
   let pathCursorIndex = -1;
   let selectedStateNodeSet = new Set();
+  let searchHintNodeSet = new Set();
   let disabledBulkMatchKeys = new Set();
   let bulkRenderMarkdown = false;
   let layoutMode = new URL(window.location.href).searchParams.get('layout') || graphConfig.layout || 'columns';
@@ -788,9 +779,8 @@ export function createApp(bootstrap) {
         || pathMatchesFilePart(attrs.path || node.path || '', q)) return true;
     }
     if (matchOptions.code) {
-      const fileContent = state.fileContentByPath.get(attrs.path || '') || '';
-      if (fileContent.toLowerCase().includes(q)
-        || String(node.sourceSnippet || '').toLowerCase().includes(q)) return true;
+      const nodeCode = sourcePreview(state, node || {}).toLowerCase();
+      if (nodeCode.includes(q)) return true;
     }
     return false;
   }
@@ -1045,6 +1035,7 @@ export function createApp(bootstrap) {
       dom.searchHints.innerHTML = '';
       dom.searchHintsOverlay.innerHTML = '';
       dom.searchHintsOverlay.hidden = true;
+      searchHintNodeSet = new Set();
       return;
     }
     const candidates = state.raw.nodes
@@ -1062,12 +1053,17 @@ export function createApp(bootstrap) {
       seen.add(value);
       options.push(`<option value="${escapeHtml(value)}"></option>`);
     }
+    searchHintNodeSet = new Set(candidates.map(({ node }) => node.key));
     dom.searchHints.innerHTML = options.join('');
     dom.searchHintsOverlay.innerHTML = candidates.map(({ node }) => {
       const fileColor = fileColorByPath.get(node.path || '') || '#8f9bb3';
       const codeMatch = codeMatchLineForHint(node, q);
       const codeMatchHtml = codeMatch ? '<span class="hint-code-line"><span class="hint-code-ln">L' + escapeHtml(codeMatch.line) + '</span><span class="hint-code-src">' + codeMatch.html + '</span></span>' : '';
-      return '<button class="hint-row" data-hint-node="' + escapeHtml(node.key) + '"><span class="hint-main"><span>' + escapeHtml(node.label || node.key) + '</span>' + codeMatchHtml + '</span><span class="hint-meta" style="color:' + escapeHtml(fileColor) + '">' + escapeHtml(node.path || 'unknown') + ' · ' + escapeHtml(nodeLineShareText(node)) + '</span></button>';
+      const inSelectedState = selectedStateNodeSet.has(node.key);
+      const isFocused = selectedNode === node.key;
+      const stateColor = isFocused ? '#ffd54f' : inSelectedState ? '#b48dff' : fileColor;
+      const stateBadges = (isFocused ? '<span class="hint-state-badge" data-kind="focused">focused</span>' : '') + (inSelectedState ? '<span class="hint-state-badge" data-kind="selected">selected</span>' : '');
+      return '<button class="hint-row" data-hint-node="' + escapeHtml(node.key) + '" data-selected-state="' + (inSelectedState ? 'true' : 'false') + '" data-focused-node="' + (isFocused ? 'true' : 'false') + '" style="--hint-border-color:' + escapeHtml(stateColor) + '; --hint-file-color:' + escapeHtml(fileColor) + ';"><span class="hint-main"><span>' + escapeHtml(node.label || node.key) + stateBadges + '</span>' + codeMatchHtml + '</span><span class="hint-meta" style="color:' + escapeHtml(fileColor) + '">' + escapeHtml(node.path || 'unknown') + ' · ' + escapeHtml(nodeLineShareText(node)) + '</span></button>';
     }).join('');
     dom.searchHintsOverlay.hidden = candidates.length === 0;
   }
@@ -1088,12 +1084,16 @@ export function createApp(bootstrap) {
       const related = !hoverSet || hoverSet.has(node);
       const onPath = pathNodeSet.has(node);
       const inSelectedState = selectedStateNodeSet.has(node);
+      const inSearchHints = searchHintNodeSet.has(node);
       let color = state.baseNodeColor.get(node);
       if (hidden) color = 'rgba(0,0,0,0)';
       else if (hasPath && onPath) color = '#ffd54f';
       else if (inSelectedState) color = '#84f8ff';
       else if (!related) color = 'rgba(255,255,255,0.14)';
+      const baseBorderColor = fileColorByPath.get(rawNode?.path || attrs.path || '') || '#8f9bb3';
+      const stateBorderColor = inSearchHints && selectedNode === node ? '#ffd54f' : inSearchHints && inSelectedState ? '#b48dff' : baseBorderColor;
       graph.setNodeAttribute(node, 'color', color);
+      graph.setNodeAttribute(node, 'borderColor', stateBorderColor);
       graph.setNodeAttribute(node, 'borderAlpha', hidden ? 0 : (!related ? 0.30 : 1));
       const baseSize = computeNodeSize({ state, nodeId: node, nodeSizeMode, nodeSizeBase, nodeSizeCodeFactor });
       graph.setNodeAttribute(node, 'size', onPath ? baseSize + 3 : hoveredNode === node || selectedNode === node ? baseSize + 2 : baseSize);
@@ -1267,7 +1267,7 @@ export function createApp(bootstrap) {
   [dom.searchMatchName, dom.searchMatchFilename, dom.searchMatchCode].forEach((checkbox) => {
     checkbox?.addEventListener('change', () => applyVisualState(dom.search.value));
   });
-  dom.searchHintsOverlay.addEventListener('click', (event) => { const btn = event.target.closest('[data-hint-node]'); if (!btn) return; const nodeId = btn.getAttribute('data-hint-node'); if (!nodeId) return; dom.search.value = graph.getNodeAttribute(nodeId, 'label') || nodeId; selectedNode = nodeId; hoveredNode = nodeId; updateInspect(nodeId); dom.searchHintsOverlay.hidden = true; applyVisualState(dom.search.value); });
+  dom.searchHintsOverlay.addEventListener('click', (event) => { const btn = event.target.closest('[data-hint-node]'); if (!btn) return; const nodeId = btn.getAttribute('data-hint-node'); if (!nodeId) return; selectedNode = nodeId; hoveredNode = nodeId; updateInspect(nodeId); applyVisualState(dom.search.value); });
   dom.searchAddToStateBtn?.addEventListener('click', () => {
     const summary = mutationSummary(searchMatchedNodeIds(dom.search.value), 'add');
     summary.nodeIds.forEach((nodeId) => selectedStateNodeSet.add(nodeId));
