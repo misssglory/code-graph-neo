@@ -72,6 +72,7 @@ export function renderHtml(graphData: GraphData, config: any = {}): string {
     .path-grid { display: grid; gap: 8px; margin-top: 8px; }
     .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
     .checkbox-row { display: flex; gap: 8px; align-items: center; color: var(--muted); font-size: 13px; margin-top: 8px; }
+    .checkbox-row label { display: inline-flex; gap: 6px; align-items: center; cursor: pointer; }
     .range-row { display: grid; grid-template-columns: 1fr auto; gap: 10px; align-items: center; margin-top: 8px; }
     .range-value { color: var(--muted); font-family: var(--mono); font-size: 12px; min-width: 42px; text-align: right; }
     .inspect { width: 100%; background: transparent; border: 0; padding: 0; color: var(--muted); line-height: 1.45; box-shadow: none; max-height: none; overflow: visible; }
@@ -169,7 +170,13 @@ export function renderHtml(graphData: GraphData, config: any = {}): string {
           <section data-tab-panel="code-search">
             <div class="section-card">
               <h2>Code search</h2>
-              <input id="search" class="search" placeholder="Search labels, files, signatures, code, or file:line (e.g. state:55)" />
+              <input id="search" class="search" placeholder="Search names, files, signatures, code, or file:line (e.g. state:55)" />
+              <div class="checkbox-row" aria-label="Search match fields">
+                <span>Match by:</span>
+                <label><input id="search-match-name" type="checkbox" checked /> name</label>
+                <label><input id="search-match-filename" type="checkbox" checked /> filename</label>
+                <label><input id="search-match-code" type="checkbox" checked /> code</label>
+              </div>
               <datalist id="search-hints"></datalist>
               <div id="search-hints-overlay" class="search-hints-overlay" hidden></div>
               <div class="row" style="margin-top:8px;"><button id="search-add-to-state" class="btn">Add search matches (+0 nodes · 0 lines)</button></div>

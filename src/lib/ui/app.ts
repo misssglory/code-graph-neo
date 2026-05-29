@@ -86,21 +86,24 @@ function parseFileLineQuery(query) {
   const normalized = filePart.endsWith('.rs') ? filePart : `${filePart}.rs`;
   return { rawFile: filePart, normalizedFile: normalized, normalizedFilePart: normalizePathSearchText(filePart), line };
 }
-function nodeScoreForHint(node, query) {
+function nodeScoreForHint(node, query, matchOptions = { name: true, filename: true, code: true }, stateRef) {
   const q = query.trim().toLowerCase();
   if (!q) return -Infinity;
   const fileLineQuery = parseFileLineQuery(q);
   if (fileLineQuery) {
+    if (!matchOptions.filename) return -Infinity;
     const range = node.range || null;
     const lineInRange = Boolean(range && range.start?.line <= fileLineQuery.line && range.end?.line >= fileLineQuery.line);
     if (lineInRange && pathMatchesFilePart(node.path || '', fileLineQuery.rawFile)) return 360;
   }
   const label = String(node.label || '').toLowerCase();
+  const key = String(node.key || '').toLowerCase();
   const path = String(node.path || '').toLowerCase();
   const signature = String(node.signature || '').toLowerCase();
   let score = -Infinity;
-  const pathCandidates = [...pathSearchCandidates(path)];
-  const candidates = [label, path, signature, ...pathCandidates];
+  const candidates = [];
+  if (matchOptions.name) candidates.push(label, key, signature);
+  if (matchOptions.filename) candidates.push(path, ...pathSearchCandidates(path));
   const queryCandidates = [...new Set([q, normalizePathSearchText(q)].filter(Boolean))];
   for (const text of candidates) {
     for (const candidateQuery of queryCandidates) {
@@ -109,6 +112,12 @@ function nodeScoreForHint(node, query) {
       const candidateScore = (idx === 0 ? 220 : 140 - Math.min(idx, 100)) + Math.max(0, 80 - text.length);
       if (candidateScore > score) score = candidateScore;
     }
+  }
+  if (matchOptions.code && stateRef) {
+    const snippet = String(node.sourceSnippet || '').toLowerCase();
+    const fileContent = String(stateRef.fileContentByPath.get(node.path || '') || '').toLowerCase();
+    if (snippet.includes(q)) score = Math.max(score, 120);
+    else if (fileContent.includes(q)) score = Math.max(score, 80);
   }
   return score;
 }
@@ -155,6 +164,14 @@ export function createApp(bootstrap) {
     const percent = totalLines ? (codeLines / totalLines) * 100 : 0;
     const rounded = percent >= 10 ? percent.toFixed(0) : percent >= 1 ? percent.toFixed(1) : percent.toFixed(2);
     return codeLines + ' lines · ' + rounded + '% of file';
+  }
+
+  function searchMatchOptions() {
+    return {
+      name: dom.searchMatchName?.matches(':checked') ?? true,
+      filename: dom.searchMatchFilename?.matches(':checked') ?? true,
+      code: dom.searchMatchCode?.matches(':checked') ?? true,
+    };
   }
 
   let hoveredNode = null;
@@ -478,33 +495,40 @@ export function createApp(bootstrap) {
       '<strong>Source</strong>' + renderCodeBlock(Prism, preview || 'No source snippet available', startLine, showLineNumbers);
   }
 
-  function matchesQuery(node, attrs, q) {
+  function matchesQuery(node, attrs, q, matchOptions = searchMatchOptions()) {
     if (!q) return true;
     const fileLineQuery = parseFileLineQuery(q);
     if (fileLineQuery) {
+      if (!matchOptions.filename) return false;
       const range = node.range || null;
       const lineInRange = Boolean(range && range.start?.line <= fileLineQuery.line && range.end?.line >= fileLineQuery.line);
       const fileMatches = pathMatchesFilePart(attrs.path || node.path || '', fileLineQuery.rawFile);
-      if (lineInRange && fileMatches) return true;
-      const fileContent = state.fileContentByPath.get(attrs.path || '') || '';
-      const fileLineRegex = new RegExp(`${escapeRegExp(fileLineQuery.rawFile)}(?:\\.rs)?[:#]${fileLineQuery.line}\\b`, 'i');
-      return fileLineRegex.test(String(node.sourceSnippet || '')) || fileLineRegex.test(fileContent);
+      return lineInRange && fileMatches;
     }
-    const fileContent = state.fileContentByPath.get(attrs.path || '') || '';
-    return attrs.label.toLowerCase().includes(q)
-      || String(attrs.path || '').toLowerCase().includes(q)
-      || pathMatchesFilePart(attrs.path || node.path || '', q)
-      || String(attrs.signature || '').toLowerCase().includes(q)
-      || fileContent.toLowerCase().includes(q)
-      || String(node.sourceSnippet || '').toLowerCase().includes(q);
+    if (matchOptions.name) {
+      if (String(attrs.label || '').toLowerCase().includes(q)
+        || String(node.key || '').toLowerCase().includes(q)
+        || String(attrs.signature || '').toLowerCase().includes(q)) return true;
+    }
+    if (matchOptions.filename) {
+      if (String(attrs.path || '').toLowerCase().includes(q)
+        || pathMatchesFilePart(attrs.path || node.path || '', q)) return true;
+    }
+    if (matchOptions.code) {
+      const fileContent = state.fileContentByPath.get(attrs.path || '') || '';
+      if (fileContent.toLowerCase().includes(q)
+        || String(node.sourceSnippet || '').toLowerCase().includes(q)) return true;
+    }
+    return false;
   }
   function searchMatchedNodeIds(query = '') {
     const q = query.trim().toLowerCase();
     if (!q) return [];
     const ids = [];
+    const matchOptions = searchMatchOptions();
     for (const node of state.raw.nodes) {
       const attrs = graph.getNodeAttributes(node.key);
-      if (matchesQuery(node, attrs, q)) ids.push(node.key);
+      if (matchesQuery(node, attrs, q, matchOptions)) ids.push(node.key);
     }
     return ids;
   }
@@ -712,7 +736,7 @@ export function createApp(bootstrap) {
       return;
     }
     const candidates = state.raw.nodes
-      .map((node) => ({ node, score: nodeScoreForHint(node, q) }))
+      .map((node) => ({ node, score: nodeScoreForHint(node, q, searchMatchOptions(), state) }))
       .filter((item) => Number.isFinite(item.score))
       .sort((a, b) => b.score - a.score || a.node.label.localeCompare(b.node.label))
       .slice(0, 16);
@@ -737,13 +761,14 @@ export function createApp(bootstrap) {
     updateSearchHints(query);
     updateSearchMutationViews(query);
     const q = query.trim().toLowerCase();
+    const matchOptions = searchMatchOptions();
     const hoverSet = hoveredNode ? state.neighbors.get(hoveredNode) || new Set([hoveredNode]) : null;
     const hasPath = pathNodeSet.size > 0;
     const selectedIncomingColor = '#7ec8ff';
     const selectedOutgoingColor = '#ff9f7e';
     graph.forEachNode((node, attrs) => {
       const rawNode = state.rawNodeByKey.get(node);
-      const matches = rawNode ? matchesQuery(rawNode, attrs, q) : true;
+      const matches = rawNode ? matchesQuery(rawNode, attrs, q, matchOptions) : true;
       const hidden = !matches;
       graph.setNodeAttribute(node, 'hidden', hidden);
       const related = !hoverSet || hoverSet.has(node);
@@ -930,6 +955,9 @@ export function createApp(bootstrap) {
   sigma.on('afterRender', drawDirectionOverlay);
 
   dom.search.addEventListener('input', () => applyVisualState(dom.search.value));
+  [dom.searchMatchName, dom.searchMatchFilename, dom.searchMatchCode].forEach((checkbox) => {
+    checkbox?.addEventListener('change', () => applyVisualState(dom.search.value));
+  });
   dom.searchHintsOverlay.addEventListener('click', (event) => { const btn = event.target.closest('[data-hint-node]'); if (!btn) return; const nodeId = btn.getAttribute('data-hint-node'); if (!nodeId) return; dom.search.value = graph.getNodeAttribute(nodeId, 'label') || nodeId; selectedNode = nodeId; hoveredNode = nodeId; updateInspect(nodeId); dom.searchHintsOverlay.hidden = true; applyVisualState(dom.search.value); });
   dom.searchAddToStateBtn?.addEventListener('click', () => {
     const summary = mutationSummary(searchMatchedNodeIds(dom.search.value), 'add');
