@@ -381,6 +381,8 @@ export function createApp(bootstrap) {
     pathCursorIndex = -1;
     selectedStateNodeSet = new Set();
     disabledBulkMatchKeys = new Set();
+    bulkMatchJobId += 1;
+    bulkMatchState = { text: '', tokens: [], matches: [], unresolved: [], nodeIds: [], processed: 0, total: 0, running: false };
   }
   function rebuildGraphFromState({ resetSelections = true } = {}) {
     graph.clear();
@@ -456,6 +458,10 @@ export function createApp(bootstrap) {
   let searchHintNodeSet = new Set();
   let disabledBulkMatchKeys = new Set();
   let bulkRenderMarkdown = false;
+  let bulkNameMatchMode = 'full';
+  let bulkFilenameMatchMode = 'full';
+  let bulkMatchJobId = 0;
+  let bulkMatchState = { text: '', tokens: [], matches: [], unresolved: [], nodeIds: [], processed: 0, total: 0, running: false };
   let layoutMode = new URL(window.location.href).searchParams.get('layout') || graphConfig.layout || 'columns';
   let mainComponentFocusMode = false;
   let rightPaneWidth = Number(uiConfig.pane_width ?? 420);
@@ -817,27 +823,36 @@ export function createApp(bootstrap) {
     const overflow = summary.nodeIds.length > 80 ? '<div class="mutation-hint-empty">…and ' + (summary.nodeIds.length - 80) + ' more nodes.</div>' : '';
     container.innerHTML = '<div class="mutation-hint"><div class="mutation-hint-title">' + escapeHtml(title) + ': ' + summary.nodeIds.length + ' nodes · ' + summary.lines + ' lines</div><div class="mutation-hint-list">' + (rows || '<div class="mutation-hint-empty">No nodes will change.</div>') + overflow + '</div></div>';
   }
-  function resolveNodeNameWord(word) {
-    const value = String(word || '').trim();
-    if (!value) return null;
-    if (state.rawNodeByKey.has(value)) return { nodeId: value, reason: 'key' };
-    const lower = value.toLowerCase();
-    const fileLineQuery = parseFileLineQuery(value);
-    if (fileLineQuery) {
-      for (const node of state.raw.nodes) {
-        const range = node.range || null;
-        const lineInRange = Boolean(range && range.start?.line <= fileLineQuery.line && range.end?.line >= fileLineQuery.line);
-        if (lineInRange && pathMatchesFilePart(node.path || '', fileLineQuery.rawFile)) return { nodeId: node.key, reason: 'file:line' };
-      }
-    }
-    if (state.labelToKeys.has(lower)) return { nodeId: state.labelToKeys.get(lower)[0], reason: 'label' };
-    for (const node of state.raw.nodes) {
-      if (String(node.key || '').toLowerCase() === lower) return { nodeId: node.key, reason: 'key' };
-      if (String(node.label || '').toLowerCase() === lower) return { nodeId: node.key, reason: 'label' };
-      if (pathMatchesFilePart(node.path || '', value)) return { nodeId: node.key, reason: 'file' };
-    }
-    return null;
+  function bulkMatchOptions() {
+    return {
+      name: bulkNameMatchMode || 'full',
+      filename: bulkFilenameMatchMode || 'full',
+    };
   }
+  function filePathWithoutExtension(path) {
+    return String(path || '').replace(/\.[^\/.]+$/, '');
+  }
+  function normalizeBulkFilename(value) {
+    return String(value || '')
+      .toLowerCase()
+      .replace(/\\/g, '/')
+      .replace(/::+/g, '/')
+      .replace(/[.]+/g, '/')
+      .replace(/\/+/g, '/')
+      .replace(/^\/+|\/+$/g, '');
+  }
+  function bulkFilenameTokenCandidates(value) {
+    const raw = String(value || '').trim();
+    if (!raw) return [];
+    const withoutLine = raw.replace(/:(\d+)$/, '');
+    return [...new Set([raw, withoutLine].filter(Boolean))];
+  }
+  function lineMatchesNodeRange(node, line) {
+    if (!line) return true;
+    const range = node?.range || null;
+    return Boolean(range && range.start?.line <= line && range.end?.line >= line);
+  }
+
   function bulkWordCandidates(word) {
     const value = String(word || '').trim();
     if (!value) return [];
@@ -848,37 +863,115 @@ export function createApp(bootstrap) {
     }
     return [...new Set(candidates)];
   }
-  function parseBulkTextNodeIds() {
-    const text = dom.bulkTextInput?.value || '';
-    const wordRegex = /[A-Za-z0-9_.$:/#-]+/g;
-    const nodeIds = [];
-    const unresolved = [];
-    const matches = [];
-    let wordMatch;
-    while ((wordMatch = wordRegex.exec(text))) {
-      const rawToken = wordMatch[0];
-      const leading = rawToken.match(/^[^A-Za-z0-9_]+/)?.[0]?.length || 0;
-      const trailing = rawToken.match(/[^A-Za-z0-9_]+$/)?.[0]?.length || 0;
-      const word = rawToken.slice(leading, rawToken.length - trailing);
-      if (!word) continue;
-      const wordStart = wordMatch.index + leading;
-      let resolved = null;
-      for (const candidate of bulkWordCandidates(word)) {
-        resolved = resolveNodeNameWord(candidate);
-        if (resolved) {
-          const candidateIndex = word.toLowerCase().indexOf(candidate.toLowerCase());
-          const start = wordStart + (candidateIndex >= 0 ? candidateIndex : 0);
-          const end = start + (candidateIndex >= 0 ? candidate.length : word.length);
-          const match = { rawWord: word, matchedText: candidate, start, end, nodeId: resolved.nodeId, reason: resolved.reason };
-          match.key = bulkMatchKey(match);
-          matches.push(match);
-          if (!disabledBulkMatchKeys.has(match.key)) nodeIds.push(resolved.nodeId);
-          break;
+  function buildBulkFilenameIndex() {
+    const index = new Map();
+    const add = (key, node) => {
+      if (!key) return;
+      if (!index.has(key)) index.set(key, []);
+      index.get(key).push(node);
+    };
+    for (const node of state.raw.nodes) {
+      const path = node.path || '';
+      add(normalizeBulkFilename(path), node);
+      add(normalizeBulkFilename(filePathWithoutExtension(path)), node);
+    }
+    return index;
+  }
+  function resolveBulkFuzzyNodeName(value) {
+    if (state.rawNodeByKey.has(value)) return { nodeId: value, reason: 'key' };
+    const lower = value.toLowerCase();
+    if (state.labelToKeys.has(lower)) return { nodeId: state.labelToKeys.get(lower)[0], reason: 'label' };
+    for (const node of state.raw.nodes) {
+      if (String(node.key || '').toLowerCase() === lower) return { nodeId: node.key, reason: 'key' };
+      if (String(node.label || '').toLowerCase() === lower) return { nodeId: node.key, reason: 'label' };
+    }
+    return null;
+  }
+  function resolveBulkFuzzyFilename(value, line) {
+    for (const node of state.raw.nodes) {
+      if (!lineMatchesNodeRange(node, line)) continue;
+      if (pathMatchesFilePart(node.path || '', value)) return { nodeId: node.key, reason: line ? 'file:line' : 'file' };
+    }
+    return null;
+  }
+  function resolveBulkToken(token, options = bulkMatchOptions()) {
+    const value = String(token?.rawWord || '').trim();
+    if (!value) return null;
+    const line = token.line || null;
+    if (options.name === 'full') {
+      const keys = state.labelToKeys.get(value.toLowerCase());
+      if (keys?.length) return { nodeId: keys[0], reason: 'name' };
+    } else if (options.name === 'fuzzy') {
+      for (const candidate of bulkWordCandidates(value)) {
+        const byName = resolveBulkFuzzyNodeName(candidate);
+        if (byName) return byName;
+      }
+    }
+    if (options.filename === 'full') {
+      for (const candidate of bulkFilenameTokenCandidates(value)) {
+        const filenameKeys = [normalizeBulkFilename(candidate), normalizeBulkFilename(filePathWithoutExtension(candidate))];
+        for (const key of filenameKeys) {
+          for (const node of options.filenameIndex?.get(key) || []) {
+            if (lineMatchesNodeRange(node, line)) return { nodeId: node.key, reason: line ? 'filename:line' : 'filename' };
+          }
         }
       }
-      if (!resolved) unresolved.push(word);
+    } else if (options.filename === 'fuzzy') {
+      for (const candidate of bulkWordCandidates(value)) {
+        const byFilename = resolveBulkFuzzyFilename(candidate, line);
+        if (byFilename) return byFilename;
+      }
     }
-    return { nodeIds: uniqueNodeIds(nodeIds), wordCount: matches.length + unresolved.length, unresolved: [...new Set(unresolved)], matches };
+    return null;
+  }
+  function tokenizeBulkText(text) {
+    const tokens = [];
+    const tokenRegex = /[A-Za-z0-9_./\\:-]+/g;
+    let tokenMatch;
+    while ((tokenMatch = tokenRegex.exec(text))) {
+      const rawToken = tokenMatch[0];
+      const leading = rawToken.match(/^[^A-Za-z0-9_./\\]+/)?.[0]?.length || 0;
+      const trailing = rawToken.match(/[^A-Za-z0-9_]+$/)?.[0]?.length || 0;
+      const rawWord = rawToken.slice(leading, rawToken.length - trailing);
+      if (!rawWord) continue;
+      const lineMatch = rawWord.match(/^(.*):(\d+)$/);
+      tokens.push({
+        rawWord,
+        start: tokenMatch.index + leading,
+        end: tokenMatch.index + leading + rawWord.length,
+        line: lineMatch ? Number(lineMatch[2]) : null,
+      });
+    }
+    return tokens;
+  }
+  function parseBulkTextNodeIds() {
+    const enabledNodeIds = bulkMatchState.matches.filter((match) => !disabledBulkMatchKeys.has(match.key)).map((match) => match.nodeId);
+    return {
+      nodeIds: uniqueNodeIds(enabledNodeIds),
+      wordCount: bulkMatchState.total,
+      unresolved: [...bulkMatchState.unresolved],
+      matches: bulkMatchState.matches,
+      processed: bulkMatchState.processed,
+      total: bulkMatchState.total,
+      running: bulkMatchState.running,
+    };
+  }
+  function setBulkProgress(processed, total, running) {
+    if (!dom.bulkProgress) return;
+    if (!total && !running) {
+      dom.bulkProgress.hidden = true;
+      dom.bulkProgress.querySelector('[role="progressbar"]')?.setAttribute('aria-valuenow', '0');
+      if (dom.bulkProgressBar) dom.bulkProgressBar.style.width = '0%';
+      if (dom.bulkProgressLabel) dom.bulkProgressLabel.textContent = 'Waiting to match text…';
+      return;
+    }
+    const percent = total ? Math.round((processed / total) * 100) : 0;
+    dom.bulkProgress.hidden = false;
+    dom.bulkProgress.querySelector('[role="progressbar"]')?.setAttribute('aria-valuenow', String(Math.max(0, Math.min(100, percent))));
+    if (dom.bulkProgressBar) dom.bulkProgressBar.style.width = Math.max(0, Math.min(100, percent)) + '%';
+    if (dom.bulkProgressLabel) {
+      dom.bulkProgressLabel.textContent = (running ? 'Matching' : 'Matched') + ' ' + processed + ' of ' + total + ' word(s) (' + percent + '%).';
+    }
   }
   function renderBulkAnnotatedText(text, matches) {
     if (!dom.bulkAnnotatedText) return;
@@ -902,21 +995,74 @@ export function createApp(bootstrap) {
     dom.bulkAnnotatedText.dataset.renderMode = bulkRenderMarkdown ? 'markdown' : 'raw';
     dom.bulkAnnotatedText.innerHTML = bulkRenderMarkdown ? renderSimpleMarkdownFromAnnotatedHtml(html) : html;
   }
-  function updateBulkTextMutationViews() {
-    if (!dom.bulkTextInput) return;
+  function renderBulkTextMutationViews() {
     const parsed = parseBulkTextNodeIds();
     const addSummary = mutationSummary(parsed.nodeIds, 'add');
     const removeSummary = mutationSummary(parsed.nodeIds, 'remove');
-    dom.bulkAddBtn.textContent = formatMutationLabel('Add text nodes', addSummary, '+');
-    dom.bulkRemoveBtn.textContent = formatMutationLabel('Remove text nodes', removeSummary, '-');
+    if (dom.bulkAddBtn) dom.bulkAddBtn.textContent = formatMutationLabel('Add text nodes', addSummary, '+');
+    if (dom.bulkRemoveBtn) dom.bulkRemoveBtn.textContent = formatMutationLabel('Remove text nodes', removeSummary, '-');
     const disabledCount = parsed.matches.filter((match) => disabledBulkMatchKeys.has(match.key)).length;
-    dom.bulkStatus.textContent = parsed.nodeIds.length
-      ? 'Resolved ' + parsed.nodeIds.length + ' enabled unique node(s) from ' + parsed.wordCount + ' word(s). ' + disabledCount + ' match(es) are turned off. ' + parsed.unresolved.length + ' unique word(s) did not resolve.'
-      : (parsed.matches.length ? 'All ' + parsed.matches.length + ' resolved match(es) are turned off.' : 'No text nodes resolved yet.');
-    renderBulkAnnotatedText(dom.bulkTextInput.value || '', parsed.matches);
+    if (dom.bulkStatus) {
+      if (parsed.running) {
+        dom.bulkStatus.textContent = 'Matching bulk text asynchronously… ' + parsed.processed + ' of ' + parsed.total + ' word(s) scanned. ' + parsed.nodeIds.length + ' enabled unique node(s) resolved so far.';
+      } else {
+        dom.bulkStatus.textContent = parsed.nodeIds.length
+          ? 'Resolved ' + parsed.nodeIds.length + ' enabled unique node(s) from ' + parsed.wordCount + ' word(s). ' + disabledCount + ' match(es) are turned off. ' + parsed.unresolved.length + ' unique word(s) did not resolve.'
+          : (parsed.matches.length ? 'All ' + parsed.matches.length + ' resolved match(es) are turned off.' : 'No text nodes resolved yet.');
+      }
+    }
+    setBulkProgress(parsed.processed, parsed.total, parsed.running);
+    renderBulkAnnotatedText(bulkMatchState.text, parsed.matches);
     renderBulkMatchAnnotations(parsed.matches);
     renderMutationHint(dom.bulkAddHints, 'Will be added from text', addSummary);
     renderMutationHint(dom.bulkRemoveHints, 'Will be removed from text', removeSummary);
+  }
+  function startBulkTextMatching() {
+    if (!dom.bulkTextInput) return;
+    const text = dom.bulkTextInput.value || '';
+    const jobId = ++bulkMatchJobId;
+    const tokens = tokenizeBulkText(text);
+    const matchOptions = bulkMatchOptions();
+    if (matchOptions.filename === 'full') matchOptions.filenameIndex = buildBulkFilenameIndex();
+    bulkMatchState = { text, tokens, matches: [], unresolved: [], nodeIds: [], processed: 0, total: tokens.length, running: Boolean(text && tokens.length) };
+    if (!text || !tokens.length) {
+      bulkMatchState.running = false;
+      renderBulkTextMutationViews();
+      return;
+    }
+    renderBulkTextMutationViews();
+    const unresolvedSet = new Set();
+    const processChunk = () => {
+      if (jobId !== bulkMatchJobId) return;
+      const deadline = performance.now() + 12;
+      let scanned = 0;
+      while (bulkMatchState.processed < bulkMatchState.total && scanned < 500 && performance.now() < deadline) {
+        const token = bulkMatchState.tokens[bulkMatchState.processed];
+        const resolved = resolveBulkToken(token, matchOptions);
+        if (resolved) {
+          const match = { rawWord: token.rawWord, matchedText: token.rawWord, start: token.start, end: token.end, nodeId: resolved.nodeId, reason: resolved.reason };
+          match.key = bulkMatchKey(match);
+          bulkMatchState.matches.push(match);
+          if (!disabledBulkMatchKeys.has(match.key)) bulkMatchState.nodeIds.push(resolved.nodeId);
+        } else {
+          unresolvedSet.add(token.rawWord);
+        }
+        bulkMatchState.processed += 1;
+        scanned += 1;
+      }
+      bulkMatchState.unresolved = [...unresolvedSet];
+      bulkMatchState.nodeIds = uniqueNodeIds(bulkMatchState.nodeIds);
+      bulkMatchState.running = bulkMatchState.processed < bulkMatchState.total;
+      renderBulkTextMutationViews();
+      if (bulkMatchState.running) window.setTimeout(processChunk, 0);
+    };
+    window.setTimeout(processChunk, 0);
+  }
+  function updateBulkTextMutationViews() {
+    if (!dom.bulkTextInput) return;
+    const text = dom.bulkTextInput.value || '';
+    if (text !== bulkMatchState.text) startBulkTextMatching();
+    else renderBulkTextMutationViews();
   }
   function renderBulkMatchAnnotations(matches) {
     if (!dom.bulkMatchAnnotations) return;
@@ -1297,6 +1443,8 @@ export function createApp(bootstrap) {
   dom.selectedRemovePathBtn.addEventListener('click', () => { currentPath.forEach((n) => selectedStateNodeSet.delete(n)); updateSelectedStateViews(); updateAllMutationViews(); applyVisualState(dom.search.value); });
   dom.bulkTextInput?.addEventListener('input', updateBulkTextMutationViews);
   dom.bulkRenderMarkdown?.addEventListener('change', () => { bulkRenderMarkdown = dom.bulkRenderMarkdown.checked; updateBulkTextMutationViews(); });
+  dom.bulkNameMatchMode?.addEventListener('change', () => { bulkNameMatchMode = dom.bulkNameMatchMode.value || 'full'; startBulkTextMatching(); });
+  dom.bulkFilenameMatchMode?.addEventListener('change', () => { bulkFilenameMatchMode = dom.bulkFilenameMatchMode.value || 'full'; startBulkTextMatching(); });
   const toggleBulkMatch = (key) => { if (!key) return; if (disabledBulkMatchKeys.has(key)) disabledBulkMatchKeys.delete(key); else disabledBulkMatchKeys.add(key); updateBulkTextMutationViews(); };
   dom.bulkAnnotatedText?.addEventListener('click', (event) => { const target = event.target; if (!(target instanceof Element)) return; const button = target.closest('[data-bulk-match-key]'); if (button) toggleBulkMatch(button.getAttribute('data-bulk-match-key')); });
   dom.bulkMatchAnnotations?.addEventListener('click', (event) => { const target = event.target; if (!(target instanceof Element)) return; const button = target.closest('[data-bulk-match-key]'); if (button) toggleBulkMatch(button.getAttribute('data-bulk-match-key')); });
