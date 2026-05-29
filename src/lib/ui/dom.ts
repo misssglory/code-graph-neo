@@ -29,6 +29,8 @@ export function createDom() {
     selectedRemovePathBtn: document.getElementById('selected-remove-path'),
     selectedMutationHints: document.getElementById('selected-mutation-hints'),
     bulkTextInput: document.getElementById('bulk-text-input'),
+    bulkRenderMarkdown: document.getElementById('bulk-render-markdown'),
+    bulkAnnotatedText: document.getElementById('bulk-annotated-text'),
     bulkAddBtn: document.getElementById('bulk-add'),
     bulkRemoveBtn: document.getElementById('bulk-remove'),
     bulkStatus: document.getElementById('bulk-status'),

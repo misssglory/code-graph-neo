@@ -36,6 +36,80 @@ function escapeRegExp(text) {
   return String(text).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
+
+function bulkMatchKey(match) {
+  return [match.rawWord, match.matchedText, match.nodeId, match.reason, match.start, match.end].map((part) => encodeURIComponent(String(part ?? ''))).join('|');
+}
+function renderSimpleMarkdownFromAnnotatedHtml(annotatedHtml) {
+  const lines = String(annotatedHtml || '').split('\n');
+  const blocks = [];
+  let paragraph = [];
+  let listItems = [];
+  let inFence = false;
+  let fenceLines = [];
+  const flushParagraph = () => {
+    if (!paragraph.length) return;
+    blocks.push('<p>' + paragraph.join('<br>') + '</p>');
+    paragraph = [];
+  };
+  const flushList = () => {
+    if (!listItems.length) return;
+    blocks.push('<ul>' + listItems.map((item) => '<li>' + item + '</li>').join('') + '</ul>');
+    listItems = [];
+  };
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (/^```/.test(trimmed)) {
+      if (inFence) {
+        blocks.push('<pre><code>' + fenceLines.join('\n') + '</code></pre>');
+        fenceLines = [];
+        inFence = false;
+      } else {
+        flushParagraph();
+        flushList();
+        inFence = true;
+      }
+      continue;
+    }
+    if (inFence) {
+      fenceLines.push(line);
+      continue;
+    }
+    if (!trimmed) {
+      flushParagraph();
+      flushList();
+      continue;
+    }
+    const heading = trimmed.match(/^(#{1,3})\s+(.+)$/);
+    if (heading) {
+      flushParagraph();
+      flushList();
+      const level = heading[1].length;
+      blocks.push('<h' + level + '>' + heading[2] + '</h' + level + '>');
+      continue;
+    }
+    const bullet = trimmed.match(/^[-*+]\s+(.+)$/);
+    if (bullet) {
+      flushParagraph();
+      listItems.push(bullet[1]);
+      continue;
+    }
+    const quote = trimmed.match(/^&gt;\s?(.+)$/);
+    if (quote) {
+      flushParagraph();
+      flushList();
+      blocks.push('<blockquote>' + quote[1] + '</blockquote>');
+      continue;
+    }
+    flushList();
+    paragraph.push(trimmed);
+  }
+  if (inFence) blocks.push('<pre><code>' + fenceLines.join('\n') + '</code></pre>');
+  flushParagraph();
+  flushList();
+  return blocks.join('') || '<div class="mutation-hint-empty">Paste text to preview matched parts.</div>';
+}
+
 function pathWithoutExtension(path) {
   return String(path || '').replace(/\.[^\/.]+$/, '');
 }
@@ -280,6 +354,7 @@ export function createApp(bootstrap) {
     pathEdgeSet = new Set();
     pathCursorIndex = -1;
     selectedStateNodeSet = new Set();
+    disabledBulkMatchKeys = new Set();
   }
   function rebuildGraphFromState({ resetSelections = true } = {}) {
     graph.clear();
@@ -352,6 +427,8 @@ export function createApp(bootstrap) {
   let pathEdgeSet = new Set();
   let pathCursorIndex = -1;
   let selectedStateNodeSet = new Set();
+  let disabledBulkMatchKeys = new Set();
+  let bulkRenderMarkdown = false;
   let layoutMode = new URL(window.location.href).searchParams.get('layout') || graphConfig.layout || 'columns';
   let mainComponentFocusMode = false;
   let rightPaneWidth = Number(uiConfig.pane_width ?? 420);
@@ -747,25 +824,57 @@ export function createApp(bootstrap) {
   }
   function parseBulkTextNodeIds() {
     const text = dom.bulkTextInput?.value || '';
-    const words = text.match(/[A-Za-z0-9_.$:/#-]+/g) || [];
+    const wordRegex = /[A-Za-z0-9_.$:/#-]+/g;
     const nodeIds = [];
     const unresolved = [];
     const matches = [];
-    for (const rawWord of words) {
-      const word = rawWord.replace(/^[^A-Za-z0-9_]+|[^A-Za-z0-9_]+$/g, '');
+    let wordMatch;
+    while ((wordMatch = wordRegex.exec(text))) {
+      const rawToken = wordMatch[0];
+      const leading = rawToken.match(/^[^A-Za-z0-9_]+/)?.[0]?.length || 0;
+      const trailing = rawToken.match(/[^A-Za-z0-9_]+$/)?.[0]?.length || 0;
+      const word = rawToken.slice(leading, rawToken.length - trailing);
       if (!word) continue;
+      const wordStart = wordMatch.index + leading;
       let resolved = null;
       for (const candidate of bulkWordCandidates(word)) {
         resolved = resolveNodeNameWord(candidate);
         if (resolved) {
-          nodeIds.push(resolved.nodeId);
-          matches.push({ rawWord: word, matchedText: candidate, nodeId: resolved.nodeId, reason: resolved.reason });
+          const candidateIndex = word.toLowerCase().indexOf(candidate.toLowerCase());
+          const start = wordStart + (candidateIndex >= 0 ? candidateIndex : 0);
+          const end = start + (candidateIndex >= 0 ? candidate.length : word.length);
+          const match = { rawWord: word, matchedText: candidate, start, end, nodeId: resolved.nodeId, reason: resolved.reason };
+          match.key = bulkMatchKey(match);
+          matches.push(match);
+          if (!disabledBulkMatchKeys.has(match.key)) nodeIds.push(resolved.nodeId);
           break;
         }
       }
       if (!resolved) unresolved.push(word);
     }
-    return { nodeIds: uniqueNodeIds(nodeIds), wordCount: words.length, unresolved: [...new Set(unresolved)], matches };
+    return { nodeIds: uniqueNodeIds(nodeIds), wordCount: matches.length + unresolved.length, unresolved: [...new Set(unresolved)], matches };
+  }
+  function renderBulkAnnotatedText(text, matches) {
+    if (!dom.bulkAnnotatedText) return;
+    if (!text) {
+      dom.bulkAnnotatedText.dataset.renderMode = bulkRenderMarkdown ? 'markdown' : 'raw';
+      dom.bulkAnnotatedText.innerHTML = '<div class="mutation-hint-empty">Paste text to preview matched parts.</div>';
+      return;
+    }
+    const ordered = [...(matches || [])].sort((a, b) => a.start - b.start || a.end - b.end);
+    let cursor = 0;
+    let html = '';
+    for (const match of ordered) {
+      if (match.start < cursor) continue;
+      html += escapeHtml(text.slice(cursor, match.start));
+      const node = state.rawNodeByKey.get(match.nodeId);
+      const enabled = !disabledBulkMatchKeys.has(match.key);
+      html += '<button class="bulk-match-token" type="button" data-bulk-match-key="' + escapeAttr(match.key) + '" data-enabled="' + (enabled ? 'true' : 'false') + '" title="' + escapeAttr((enabled ? 'Enabled' : 'Disabled') + ': ' + (node?.label || match.nodeId) + ' · ' + match.reason) + '">' + escapeHtml(text.slice(match.start, match.end)) + '<span class="bulk-match-node">→ ' + escapeHtml(node?.label || match.nodeId) + '</span></button>';
+      cursor = match.end;
+    }
+    html += escapeHtml(text.slice(cursor));
+    dom.bulkAnnotatedText.dataset.renderMode = bulkRenderMarkdown ? 'markdown' : 'raw';
+    dom.bulkAnnotatedText.innerHTML = bulkRenderMarkdown ? renderSimpleMarkdownFromAnnotatedHtml(html) : html;
   }
   function updateBulkTextMutationViews() {
     if (!dom.bulkTextInput) return;
@@ -774,9 +883,11 @@ export function createApp(bootstrap) {
     const removeSummary = mutationSummary(parsed.nodeIds, 'remove');
     dom.bulkAddBtn.textContent = formatMutationLabel('Add text nodes', addSummary, '+');
     dom.bulkRemoveBtn.textContent = formatMutationLabel('Remove text nodes', removeSummary, '-');
+    const disabledCount = parsed.matches.filter((match) => disabledBulkMatchKeys.has(match.key)).length;
     dom.bulkStatus.textContent = parsed.nodeIds.length
-      ? 'Resolved ' + parsed.nodeIds.length + ' unique node(s) from ' + parsed.wordCount + ' word(s). ' + parsed.unresolved.length + ' unique word(s) did not resolve.'
-      : 'No text nodes resolved yet.';
+      ? 'Resolved ' + parsed.nodeIds.length + ' enabled unique node(s) from ' + parsed.wordCount + ' word(s). ' + disabledCount + ' match(es) are turned off. ' + parsed.unresolved.length + ' unique word(s) did not resolve.'
+      : (parsed.matches.length ? 'All ' + parsed.matches.length + ' resolved match(es) are turned off.' : 'No text nodes resolved yet.');
+    renderBulkAnnotatedText(dom.bulkTextInput.value || '', parsed.matches);
     renderBulkMatchAnnotations(parsed.matches);
     renderMutationHint(dom.bulkAddHints, 'Will be added from text', addSummary);
     renderMutationHint(dom.bulkRemoveHints, 'Will be removed from text', removeSummary);
@@ -786,10 +897,13 @@ export function createApp(bootstrap) {
     const uniqueMatches = [];
     const seen = new Set();
     for (const match of matches || []) {
-      const key = match.rawWord + '\0' + match.matchedText + '\0' + match.nodeId;
+      const key = match.key || bulkMatchKey(match);
       if (seen.has(key)) continue;
       seen.add(key);
-      uniqueMatches.push(match);
+      uniqueMatches.push({ ...match, key });
+    }
+    for (const disabledKey of [...disabledBulkMatchKeys]) {
+      if (!seen.has(disabledKey)) disabledBulkMatchKeys.delete(disabledKey);
     }
     if (!uniqueMatches.length) {
       dom.bulkMatchAnnotations.innerHTML = '<div class="mutation-hint-empty">No matched text parts yet.</div>';
@@ -798,11 +912,13 @@ export function createApp(bootstrap) {
     const rows = uniqueMatches.slice(0, 120).map((match) => {
       const node = state.rawNodeByKey.get(match.nodeId);
       const fileColor = fileColorByPath.get(node?.path || '') || '#8f9bb3';
-      return '<div class="bulk-match-row"><span><mark>' + escapeHtml(match.matchedText) + '</mark> from <span class="mono">' + escapeHtml(match.rawWord) + '</span></span><span style="color:' + escapeHtml(fileColor) + '">' + escapeHtml(node?.label || match.nodeId) + ' · ' + escapeHtml(match.reason) + '</span></div>';
+      const enabled = !disabledBulkMatchKeys.has(match.key);
+      return '<div class="bulk-match-row" data-enabled="' + (enabled ? 'true' : 'false') + '"><button class="bulk-match-toggle btn" type="button" data-bulk-match-key="' + escapeAttr(match.key) + '">' + (enabled ? 'On' : 'Off') + '</button><span><mark>' + escapeHtml(match.matchedText) + '</mark> from <span class="mono">' + escapeHtml(match.rawWord) + '</span></span><span style="color:' + escapeHtml(fileColor) + '">' + escapeHtml(node?.label || match.nodeId) + ' · ' + escapeHtml(match.reason) + '</span></div>';
     }).join('');
     const overflow = uniqueMatches.length > 120 ? '<div class="mutation-hint-empty">…and ' + (uniqueMatches.length - 120) + ' more matched text part(s).</div>' : '';
-    dom.bulkMatchAnnotations.innerHTML = '<div class="bulk-match-title">Matched text parts → nodes</div><div class="bulk-match-list">' + rows + overflow + '</div>';
+    dom.bulkMatchAnnotations.innerHTML = '<div class="bulk-match-title">Matched text parts → nodes (toggle matches to tune selected nodes and copied sources)</div><div class="bulk-match-list">' + rows + overflow + '</div>';
   }
+
   function updateAllMutationViews() {
     updateSearchMutationViews(dom.search?.value || '');
     updateSelectedMutationButtonLabels();
@@ -1142,6 +1258,10 @@ export function createApp(bootstrap) {
   dom.selectedAddPathBtn.addEventListener('click', () => { currentPath.forEach((n) => selectedStateNodeSet.add(n)); updateSelectedStateViews(); updateAllMutationViews(); applyVisualState(dom.search.value); });
   dom.selectedRemovePathBtn.addEventListener('click', () => { currentPath.forEach((n) => selectedStateNodeSet.delete(n)); updateSelectedStateViews(); updateAllMutationViews(); applyVisualState(dom.search.value); });
   dom.bulkTextInput?.addEventListener('input', updateBulkTextMutationViews);
+  dom.bulkRenderMarkdown?.addEventListener('change', () => { bulkRenderMarkdown = dom.bulkRenderMarkdown.checked; updateBulkTextMutationViews(); });
+  const toggleBulkMatch = (key) => { if (!key) return; if (disabledBulkMatchKeys.has(key)) disabledBulkMatchKeys.delete(key); else disabledBulkMatchKeys.add(key); updateBulkTextMutationViews(); };
+  dom.bulkAnnotatedText?.addEventListener('click', (event) => { const target = event.target; if (!(target instanceof Element)) return; const button = target.closest('[data-bulk-match-key]'); if (button) toggleBulkMatch(button.getAttribute('data-bulk-match-key')); });
+  dom.bulkMatchAnnotations?.addEventListener('click', (event) => { const target = event.target; if (!(target instanceof Element)) return; const button = target.closest('[data-bulk-match-key]'); if (button) toggleBulkMatch(button.getAttribute('data-bulk-match-key')); });
   dom.bulkAddBtn?.addEventListener('click', () => { parseBulkTextNodeIds().nodeIds.forEach((n) => selectedStateNodeSet.add(n)); updateSelectedStateViews(); updateAllMutationViews(); applyVisualState(dom.search.value); });
   dom.bulkRemoveBtn?.addEventListener('click', () => { parseBulkTextNodeIds().nodeIds.forEach((n) => selectedStateNodeSet.delete(n)); updateSelectedStateViews(); updateAllMutationViews(); applyVisualState(dom.search.value); });
   dom.selectedCopyBtn.addEventListener('click', async () => { const text = [...selectedStateNodeSet].map((nodeId) => { const node = state.rawNodeByKey.get(nodeId); const preview = sourcePreview(state, node || {}) || 'No source snippet available'; const startLine = node?.range?.start?.line || 1; return '// file: ' + (node?.path || 'unknown') + '\n' + withLineNumbers(preview, startLine, showLineNumbers); }).join('\n\n'); await navigator.clipboard.writeText(text); dom.selectedStatus.textContent = 'Copied ' + selectedStateNodeSet.size + ' selected-state code block(s).'; });
