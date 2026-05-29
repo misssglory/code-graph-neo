@@ -172,6 +172,7 @@ export function renderHtml(graphData: GraphData, config: any = {}): string {
               <input id="search" class="search" placeholder="Search labels, files, signatures, code, or file:line (e.g. state:55)" />
               <datalist id="search-hints"></datalist>
               <div id="search-hints-overlay" class="search-hints-overlay" hidden></div>
+              <div class="row" style="margin-top:8px;"><button id="search-add-to-state" class="btn">Add search matches (+0 nodes · 0 lines)</button></div>
               <div id="selection" class="meta">Focus source or sink, then click a node to assign it. The focused field gets the clicked node. After a path appears, focus the list and use arrows or Ctrl-J/Ctrl-K, then Enter.</div>
             </div>
             <div class="section-card">
