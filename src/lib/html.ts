@@ -85,6 +85,10 @@ export function renderHtml(graphData: GraphData, config: any = {}): string {
     .outside-swatch { background: var(--outside); }
     .pathswatch { background: var(--path); }
     .status-box { margin-top: 8px; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--border); background: rgba(255,255,255,0.04); color: var(--muted); font-size: 12px; line-height: 1.45; }
+    .snapshot-list { display: grid; gap: 8px; margin-top: 12px; }
+    .snapshot-row { display: grid; gap: 3px; padding: 10px; border: 1px solid var(--border); border-radius: 10px; background: rgba(255,255,255,0.035); }
+    .snapshot-name { color: var(--text); font-family: var(--mono); font-size: 12px; overflow-wrap: anywhere; }
+    .snapshot-meta { color: var(--muted); font-size: 11px; }
     .code-block { margin-top: 8px; background: rgba(0,0,0,0.42); border: 1px solid rgba(255,255,255,0.08); border-radius: 10px; overflow: auto; padding: 12px; font-family: var(--mono); font-size: 12px; line-height: 1.55; white-space: pre; }
     .code-block.with-lines { padding: 0; }
     .code-row { display: grid; grid-template-columns: auto 1fr; min-width: max-content; }
@@ -152,16 +156,17 @@ export function renderHtml(graphData: GraphData, config: any = {}): string {
         </div>
         <p>This viewer combines code inspection, settings, and path exploration in one transparent floating panel. Use the path list like a mini fzf: arrows or Ctrl-J/Ctrl-K move, Enter locks selection.</p>
         <div class="chips">
-          <span class="chip mainchip mono">main: ${graphData.mainKey ?? 'not found'}</span>
+          <span id="summary-main" class="chip mainchip mono">main: ${graphData.mainKey ?? 'not found'}</span>
           <span class="chip reachchip">used in main component</span>
           <span class="chip unreachchip">dead in main component</span>
           <span class="chip outsidechip">outside main component</span>
-          <span class="chip">nodes: ${graphData.nodes.length}</span>
-          <span class="chip">files: ${graphData.files.length}</span>
+          <span id="summary-nodes" class="chip">nodes: ${graphData.nodes.length}</span>
+          <span id="summary-files" class="chip">files: ${graphData.files.length}</span>
         </div>
         <div class="tab-row">
           <button class="tab-btn" data-tab-button="code-search" data-active="true">code search</button>
           <button class="tab-btn" data-tab-button="settings" data-active="false">settings</button>
+          <button class="tab-btn" data-tab-button="graphs" data-active="false">graphs</button>
           <button class="tab-btn" data-tab-button="find-path" data-active="false">find path</button>
           <button class="tab-btn" data-tab-button="selected-nodes" data-active="false">selected nodes</button>
           <button class="tab-btn" data-tab-button="bulk-text" data-active="false">bulk text</button>
@@ -185,6 +190,18 @@ export function renderHtml(graphData: GraphData, config: any = {}): string {
             <div class="section-card">
               <h2>Node info</h2>
               <div id="inspect" class="inspect">Ready.</div>
+            </div>
+          </section>
+          <section data-tab-panel="graphs" hidden>
+            <div class="section-card">
+              <h2>Open graph snapshot</h2>
+              <select id="graph-snapshot-select" class="select-input"></select>
+              <div class="row" style="margin-top:8px;">
+                <button id="graph-snapshot-open" class="btn">Open selected graph</button>
+                <button id="graph-snapshot-refresh" class="btn">Refresh list</button>
+              </div>
+              <div id="graph-snapshot-status" class="status-box">Loading snapshots from public/*.json…</div>
+              <div id="graph-snapshot-list" class="snapshot-list"></div>
             </div>
           </section>
           <section data-tab-panel="selected-nodes" hidden>

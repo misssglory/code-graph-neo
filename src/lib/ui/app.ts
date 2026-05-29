@@ -139,7 +139,7 @@ function withLineNumbers(text, startLine = 1, enabled = false) {
 }
 
 export function createApp(bootstrap) {
-  const raw = bootstrap?.graph || bootstrap;
+  const initialRaw = bootstrap?.graph || bootstrap;
   const config = bootstrap?.config || {};
   const uiConfig = config.ui || {};
   const graphConfig = config.graph || {};
@@ -148,8 +148,11 @@ export function createApp(bootstrap) {
 
   const dom = createDom();
   const graph = new Graph({ multi: true, allowSelfLoops: true });
-  const state = buildGraphState(raw);
-  const fileColorByPath = makeFileColorMap(state.raw.nodes.map((n) => n.path || ''), palette);
+  let state = buildGraphState(initialRaw);
+  let fileColorByPath = makeFileColorMap(state.raw.nodes.map((n) => n.path || ''), palette);
+  let sigma = null;
+  let graphSnapshots = [];
+  let currentSnapshotPath = 'graph.json';
 
   function fileLineCount(path) {
     const content = String(state.fileContentByPath.get(path || '') || '');
@@ -166,6 +169,111 @@ export function createApp(bootstrap) {
     return codeLines + ' lines · ' + rounded + '% of file';
   }
 
+
+  function updateGraphSummary() {
+    if (dom.summaryMain) dom.summaryMain.textContent = 'main: ' + (state.currentMainKey || 'not found');
+    if (dom.summaryNodes) dom.summaryNodes.textContent = 'nodes: ' + state.raw.nodes.length;
+    if (dom.summaryFiles) dom.summaryFiles.textContent = 'files: ' + state.raw.files.length;
+  }
+
+  function formatSnapshotDate(value) {
+    if (!value) return 'mtime unavailable';
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return 'mtime unavailable';
+    return date.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'medium' });
+  }
+  function formatSnapshotSize(bytes) {
+    const n = Number(bytes || 0);
+    if (n >= 1024 * 1024) return (n / (1024 * 1024)).toFixed(1) + ' MB';
+    if (n >= 1024) return (n / 1024).toFixed(1) + ' KB';
+    return n + ' B';
+  }
+  function renderSnapshotPicker() {
+    if (!dom.graphSnapshotSelect) return;
+    if (!graphSnapshots.length) {
+      dom.graphSnapshotSelect.innerHTML = '<option value="">No public/*.json snapshots found</option>';
+      if (dom.graphSnapshotList) dom.graphSnapshotList.innerHTML = '<div class="path-empty">No JSON graph snapshots found in public/.</div>';
+      return;
+    }
+    dom.graphSnapshotSelect.innerHTML = graphSnapshots.map((snapshot) => {
+      const label = snapshot.path + ' · modified ' + formatSnapshotDate(snapshot.mtime);
+      return '<option value="' + escapeHtml(snapshot.path) + '">' + escapeHtml(label) + '</option>';
+    }).join('');
+    dom.graphSnapshotSelect.value = graphSnapshots.some((snapshot) => snapshot.path === currentSnapshotPath) ? currentSnapshotPath : graphSnapshots[0].path;
+    if (dom.graphSnapshotList) {
+      dom.graphSnapshotList.innerHTML = graphSnapshots.map((snapshot) => {
+        const active = snapshot.path === currentSnapshotPath ? ' · current' : '';
+        return '<div class="snapshot-row"><div class="snapshot-name">' + escapeHtml(snapshot.path) + escapeHtml(active) + '</div><div class="snapshot-meta">Last modified: ' + escapeHtml(formatSnapshotDate(snapshot.mtime)) + ' · ' + escapeHtml(formatSnapshotSize(snapshot.size)) + '</div></div>';
+      }).join('');
+    }
+  }
+  async function refreshSnapshotList() {
+    if (dom.graphSnapshotStatus) dom.graphSnapshotStatus.textContent = 'Loading snapshots from public/*.json…';
+    try {
+      const response = await fetch('/api/graphs');
+      if (!response.ok) throw new Error('HTTP ' + response.status);
+      const data = await response.json();
+      graphSnapshots = Array.isArray(data.snapshots) ? data.snapshots : [];
+      renderSnapshotPicker();
+      if (dom.graphSnapshotStatus) dom.graphSnapshotStatus.textContent = graphSnapshots.length ? 'Found ' + graphSnapshots.length + ' graph snapshot(s). Last modification times are shown below.' : 'No JSON graph snapshots found in public/.';
+    } catch (error) {
+      if (dom.graphSnapshotStatus) dom.graphSnapshotStatus.textContent = 'Could not load graph snapshots: ' + (error?.message || error);
+    }
+  }
+  function resetGraphSelections() {
+    hoveredNode = null;
+    selectedNode = state.currentMainKey || null;
+    foundPaths = [];
+    foundPathIndex = -1;
+    currentPath = [];
+    pathSelectedNodeSet = new Set();
+    pathNodeSet = new Set();
+    pathEdgeSet = new Set();
+    pathCursorIndex = -1;
+    selectedStateNodeSet = new Set();
+  }
+  function rebuildGraphFromState({ resetSelections = true } = {}) {
+    graph.clear();
+    fileColorByPath = makeFileColorMap(state.raw.nodes.map((n) => n.path || ''), palette);
+    if (resetSelections) resetGraphSelections();
+    refreshStateForCurrentMain();
+    seedColumnLayout();
+    refreshBaseNodeStyles();
+    addEdges();
+    applyOptionalLayout();
+    buildNeighborMap();
+    fillMainSourceSelect();
+    updateGraphSummary();
+  }
+  function refreshGraphDependentViews() {
+    renderFoundPathTabs();
+    renderPathList();
+    renderPathCodeView();
+    updateSelectedStateViews();
+    updateAllMutationViews();
+    updatePathStatus('No path selected. Focus source or sink, then click a node to assign it.');
+    if (selectedNode) updateInspect(selectedNode);
+    else if (dom.inspect) dom.inspect.textContent = 'Ready.';
+    applyVisualState(dom.search?.value || '');
+  }
+  async function openGraphSnapshot(path) {
+    if (!path) return;
+    if (dom.graphSnapshotStatus) dom.graphSnapshotStatus.textContent = 'Opening ' + path + '…';
+    try {
+      const response = await fetch('/api/graph?path=' + encodeURIComponent(path));
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || ('HTTP ' + response.status));
+      state = buildGraphState(data.graph);
+      currentSnapshotPath = data.snapshot?.path || path;
+      rebuildGraphFromState({ resetSelections: true });
+      refreshGraphDependentViews();
+      renderSnapshotPicker();
+      if (dom.graphSnapshotStatus) dom.graphSnapshotStatus.textContent = 'Opened ' + currentSnapshotPath + '. Last modified: ' + formatSnapshotDate(data.snapshot?.mtime) + '.';
+    } catch (error) {
+      if (dom.graphSnapshotStatus) dom.graphSnapshotStatus.textContent = 'Could not open ' + path + ': ' + (error?.message || error);
+    }
+  }
+
   function searchMatchOptions() {
     return {
       name: dom.searchMatchName?.matches(':checked') ?? true,
@@ -175,7 +283,7 @@ export function createApp(bootstrap) {
   }
 
   let hoveredNode = null;
-  let selectedNode = raw.mainKey || null;
+  let selectedNode = state.currentMainKey || null;
   let applyDirections = Boolean(graphConfig.apply_directions ?? true);
   let renderEdgeDirection = Boolean(uiConfig.render_edge_direction ?? true);
   let focusedPathField = 'from';
@@ -816,6 +924,7 @@ export function createApp(bootstrap) {
     reapplyBaseEdgeStyles();
     applyVisualState(dom.search.value);
     updateInspect(nodeId);
+    updateGraphSummary();
   }
   function fillMainSourceSelect() {
     const uniquePaths = [...new Set(state.raw.nodes.map((n) => n.path || 'unknown'))].sort();
@@ -892,15 +1001,9 @@ export function createApp(bootstrap) {
     });
   }
 
-  refreshStateForCurrentMain();
-  seedColumnLayout();
-  refreshBaseNodeStyles();
-  addEdges();
-  applyOptionalLayout();
-  buildNeighborMap();
-  fillMainSourceSelect();
+  rebuildGraphFromState({ resetSelections: false });
 
-  const sigma = new Sigma(graph, dom.graphContainer, {
+  sigma = new Sigma(graph, dom.graphContainer, {
     minCameraRatio: 0.2,
     maxCameraRatio: 8,
     labelDensity: 1,
@@ -1033,6 +1136,9 @@ export function createApp(bootstrap) {
     const chosen = explicitMain || candidates[0] || null;
     if (chosen) setMainFromNode(chosen.key);
   });
+  dom.graphSnapshotRefreshBtn?.addEventListener('click', refreshSnapshotList);
+  dom.graphSnapshotOpenBtn?.addEventListener('click', () => openGraphSnapshot(dom.graphSnapshotSelect?.value || ''));
+  dom.graphSnapshotSelect?.addEventListener('keydown', (event) => { if (event.key === 'Enter') openGraphSnapshot(dom.graphSnapshotSelect.value); });
   dom.sidebarTabs.forEach((btn) => btn.addEventListener('click', () => setActiveTab(dom.sidebarTabs, dom.sidebarPanels, btn.dataset.tabButton)));
   dom.pathFromInput.addEventListener('focus', () => { focusedPathField = 'from'; syncFocusedFieldUI(); });
   dom.pathToInput.addEventListener('focus', () => { focusedPathField = 'to'; syncFocusedFieldUI(); });
@@ -1076,4 +1182,5 @@ export function createApp(bootstrap) {
   updatePathStatus('No path selected. Focus source or sink, then click a node to assign it.');
   if (selectedNode) updateInspect(selectedNode);
   applyVisualState();
+  refreshSnapshotList();
 }
