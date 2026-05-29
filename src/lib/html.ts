@@ -129,11 +129,28 @@ export function renderHtml(graphData: GraphData, config: any = {}): string {
     .mutation-hint-list { display: grid; gap: 6px; max-height: 220px; overflow: auto; }
     .mutation-hint-row { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: baseline; font-family: var(--mono); font-size: 12px; color: #dce2ef; }
     .mutation-hint-empty { color: var(--muted); font-size: 12px; }
+    .bulk-preview { margin-top: 10px; border: 1px solid var(--border); border-radius: 12px; background: rgba(0,0,0,0.28); overflow: hidden; }
+    .bulk-preview-title { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 9px 10px; border-bottom: 1px solid rgba(255,255,255,0.08); color: var(--muted); font-size: 12px; }
+    .bulk-annotated-text { max-height: 280px; overflow: auto; padding: 12px; color: #dce2ef; font-size: 13px; line-height: 1.55; }
+    .bulk-annotated-text[data-render-mode="raw"] { white-space: pre-wrap; font-family: var(--mono); overflow-wrap: anywhere; }
+    .bulk-annotated-text[data-render-mode="markdown"] { font-family: Inter, ui-sans-serif, system-ui, sans-serif; }
+    .bulk-annotated-text h1, .bulk-annotated-text h2, .bulk-annotated-text h3 { margin: 8px 0; }
+    .bulk-annotated-text p { margin: 0 0 8px; color: #dce2ef; }
+    .bulk-annotated-text ul, .bulk-annotated-text ol { margin: 0 0 8px 20px; padding: 0; }
+    .bulk-annotated-text blockquote { margin: 0 0 8px; padding-left: 10px; border-left: 2px solid var(--border); color: var(--muted); }
+    .bulk-annotated-text pre { margin: 0 0 8px; padding: 10px; border-radius: 10px; background: rgba(0,0,0,0.38); overflow: auto; }
+    .bulk-match-token { display: inline-flex; align-items: center; gap: 4px; margin: 0 1px; border-radius: 6px; border: 1px solid var(--path); color: #081014; background: var(--path); padding: 0 4px; font-family: var(--mono); font-size: 0.95em; cursor: pointer; animation: bulkMatchPulse 1.35s ease-out 1; }
+    .bulk-match-token[data-enabled="false"] { color: var(--path); background: transparent; border-style: dashed; }
+    .bulk-match-node { color: inherit; opacity: 0.74; font-size: 0.82em; }
     .bulk-match-annotations { margin-top: 10px; border: 1px solid var(--border); border-radius: 12px; background: rgba(255,255,255,0.035); padding: 10px; }
     .bulk-match-title { color: var(--muted); font-size: 12px; margin-bottom: 8px; }
     .bulk-match-list { display: grid; gap: 6px; max-height: 220px; overflow: auto; }
-    .bulk-match-row { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: baseline; font-family: var(--mono); font-size: 12px; color: #dce2ef; }
-    .bulk-match-row mark { color: #081014; background: var(--path); border-radius: 4px; padding: 1px 4px; }
+    .bulk-match-row { display: grid; grid-template-columns: auto 1fr auto; gap: 8px; align-items: baseline; font-family: var(--mono); font-size: 12px; color: #dce2ef; border: 1px solid transparent; border-radius: 8px; padding: 4px 6px; }
+    .bulk-match-row[data-enabled="false"] { border-color: var(--path); background: transparent; opacity: 0.78; }
+    .bulk-match-row mark { color: #081014; background: var(--path); border: 1px solid var(--path); border-radius: 4px; padding: 1px 4px; animation: bulkMatchPulse 1.35s ease-out 1; }
+    .bulk-match-row[data-enabled="false"] mark { color: var(--path); background: transparent; border-style: dashed; }
+    .bulk-match-toggle { padding: 3px 7px; border-radius: 999px; font-size: 11px; }
+    @keyframes bulkMatchPulse { 0% { box-shadow: 0 0 0 0 rgba(255,213,79,0.55); } 70% { box-shadow: 0 0 0 8px rgba(255,213,79,0); } 100% { box-shadow: 0 0 0 0 rgba(255,213,79,0); } }
     [hidden] { display: none !important; }
     .app[data-sidebar-collapsed="true"] .right-pane-wrap { width: 56px !important; height: 56px !important; }
     .app[data-sidebar-collapsed="true"] .right-pane-resize-corner { display: none; }
@@ -233,6 +250,8 @@ export function renderHtml(graphData: GraphData, config: any = {}): string {
             <div class="section-card">
               <h2>Bulk text selection</h2>
               <textarea id="bulk-text-input" class="textarea-input" placeholder="Paste text here. Words, file stems, and file:line forms are resolved as graph nodes. Separators like :: and . are considered word boundaries."></textarea>
+              <div class="checkbox-row"><input id="bulk-render-markdown" type="checkbox" /><label for="bulk-render-markdown">Render bulk text preview as markdown</label></div>
+              <div class="bulk-preview"><div class="bulk-preview-title"><span>Annotated bulk text</span><span>Click a highlighted part to include/exclude it</span></div><div id="bulk-annotated-text" class="bulk-annotated-text" data-render-mode="raw"><div class="mutation-hint-empty">Paste text to preview matched parts.</div></div></div>
               <div class="row" style="margin-top:8px;"><button id="bulk-add" class="btn">Add text nodes (+0 nodes · 0 lines)</button><button id="bulk-remove" class="btn">Remove text nodes (-0 nodes · 0 lines)</button></div>
               <div id="bulk-status" class="status-box">No text nodes resolved yet.</div>
               <div id="bulk-match-annotations" class="bulk-match-annotations"><div class="mutation-hint-empty">No matched text parts yet.</div></div>
