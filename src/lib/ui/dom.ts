@@ -2,6 +2,7 @@ export function createDom() {
   return {
     appRoot: document.getElementById('app-root'),
     graphContainer: document.getElementById('graph-container'),
+    appTitle: document.getElementById('app-title'),
     inspect: document.getElementById('inspect'),
     selection: document.getElementById('selection'),
     search: document.getElementById('search'),
@@ -9,6 +10,7 @@ export function createDom() {
     searchMatchName: document.getElementById('search-match-name'),
     searchMatchFilename: document.getElementById('search-match-filename'),
     searchMatchCode: document.getElementById('search-match-code'),
+    summaryType: document.getElementById('summary-type'),
     summaryMain: document.getElementById('summary-main'),
     summaryNodes: document.getElementById('summary-nodes'),
     summaryFiles: document.getElementById('summary-files'),

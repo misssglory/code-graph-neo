@@ -2,7 +2,7 @@ import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 import config from '../codegraph.toml';
 import { renderHtml } from './lib/html.ts';
-import { loadGraphFromDefaultInput, parseStructuredGraph } from './lib/parse.ts';
+import { loadGraphFromDefaultInput, parseStructuredGraph, type GraphParseMode } from './lib/parse.ts';
 
 const publicDir = resolve(process.cwd(), 'public');
 const graphData = loadGraphFromDefaultInput();
@@ -54,6 +54,12 @@ function listJsonFiles(dir = publicDir, prefix = ''): GraphSnapshot[] {
   });
 }
 
+function parseModeFromRequest(request: Request): GraphParseMode {
+  const mode = new URL(request.url).searchParams.get('mode') || 'auto';
+  if (mode === 'auto' || mode === 'code' || mode === 'tx') return mode;
+  throw new Error('Graph mode must be auto, code, or tx');
+}
+
 function graphPathFromRequest(request: Request): string {
   const url = new URL(request.url);
   const requested = url.searchParams.get('path') || 'graph.json';
@@ -81,7 +87,7 @@ Bun.serve({
         const absolutePath = graphPathFromRequest(request);
         const raw = readFileSync(absolutePath, 'utf8');
         const stat = statSync(absolutePath);
-        const graph = parseStructuredGraph(raw);
+        const graph = parseStructuredGraph(raw, parseModeFromRequest(request));
         return jsonResponse({
           graph,
           snapshot: {

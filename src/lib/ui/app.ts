@@ -221,7 +221,7 @@ export function createApp(bootstrap) {
   const dom = createDom();
   const graph = new Graph({ multi: true, allowSelfLoops: true });
   let state = buildGraphState(initialRaw);
-  let fileColorByPath = makeFileColorMap(state.raw.nodes.map((n) => n.path || ''), palette);
+  let fileColorByPath = makeFileColorMap(state.raw.nodes.map((n) => n.path || n.category || n.type || ''), palette);
   let sigma = null;
   let graphSnapshots = [];
   let currentSnapshotPath = 'graph.json';
@@ -237,9 +237,9 @@ export function createApp(bootstrap) {
   }
   function nodeLineShareText(node) {
     const codeLines = estimateCodeSize(state, node || {});
-    const totalLines = fileLineCount(node?.path || '');
+    const totalLines = isTxGraph() ? 1 : fileLineCount(node?.path || '');
     const percent = totalLines ? (codeLines / totalLines) * 100 : 0;
-    return String(codeLines).padStart(5, ' ') + 'L ' + String(Math.round(percent)).padStart(3, ' ') + '%';
+    return isTxGraph() ? String(node?.type || 'node') : String(codeLines).padStart(5, ' ') + 'L ' + String(Math.round(percent)).padStart(3, ' ') + '%';
   }
 
   function lineNumberForSnippetIndex(node, lineIdx) {
@@ -272,10 +272,33 @@ export function createApp(bootstrap) {
   }
 
 
+  function graphTypeLabel() { return state.raw.graphType === 'tx' ? 'tx' : 'code'; }
+  function isTxGraph() { return graphTypeLabel() === 'tx'; }
+  function edgeIsRenderable(edge) { return isTxGraph() || edge.type === 'calls'; }
+  function nodeColorKey(node) { return node?.path || node?.category || node?.type || ''; }
+  function baseNodeBorderColor(node) {
+    if (isTxGraph() && node?.type === 'tx_transfer') return '#ffd54f';
+    if (isTxGraph() && node?.tracked) return '#63d7ff';
+    if (isTxGraph() && node?.type === 'wallet') return '#67db8b';
+    return fileColorByPath.get(nodeColorKey(node)) || '#8f9bb3';
+  }
+  function txNodeFillColor(node) {
+    if (node?.type === 'tx_transfer') return '#ffd54f';
+    if (node?.tracked) return '#63d7ff';
+    if (node?.type === 'wallet') return '#67db8b';
+    return '#8f9bb3';
+  }
+  function formatTxAmount(nodeOrEdge) {
+    const amount = nodeOrEdge?.amountEth ?? nodeOrEdge?.attributes?.amount_eth;
+    if (amount == null || amount === '') return '';
+    return String(amount) + ' ETH';
+  }
   function updateGraphSummary() {
-    if (dom.summaryMain) dom.summaryMain.textContent = 'main: ' + (state.currentMainKey || 'not found');
+    if (dom.appTitle) dom.appTitle.textContent = isTxGraph() ? 'Tx graph' : 'Code graph';
+    if (dom.summaryType) dom.summaryType.textContent = 'type: ' + graphTypeLabel();
+    if (dom.summaryMain) dom.summaryMain.textContent = (isTxGraph() ? 'focus wallet: ' : 'main: ') + (state.currentMainKey || 'not found');
     if (dom.summaryNodes) dom.summaryNodes.textContent = 'nodes: ' + state.raw.nodes.length;
-    if (dom.summaryFiles) dom.summaryFiles.textContent = 'files: ' + state.raw.files.length;
+    if (dom.summaryFiles) dom.summaryFiles.textContent = isTxGraph() ? 'tx nodes: ' + state.raw.nodes.filter((node) => node.type === 'tx_transfer').length : 'files: ' + state.raw.files.length;
   }
 
   function formatSnapshotDate(value) {
@@ -310,12 +333,12 @@ export function createApp(bootstrap) {
     dom.graphSnapshotList.innerHTML = sortedGraphSnapshots().map((snapshot) => {
       const active = snapshot.path === currentSnapshotPath ? ' · current' : '';
       const selected = snapshot.path === selectedSnapshotComparePath ? ' data-selected="true"' : '';
-      return '<div class="snapshot-row" data-graph-snapshot-path="' + escapeAttr(snapshot.path) + '"' + selected + '><div><div class="snapshot-name">' + escapeHtml(snapshot.path) + escapeHtml(active) + '</div><div class="snapshot-meta">Last modified: ' + escapeHtml(formatSnapshotDate(snapshot.mtime)) + ' · ' + escapeHtml(formatSnapshotSize(snapshot.size)) + '</div></div><button class="btn snapshot-open-btn" type="button" data-open-graph-snapshot="' + escapeAttr(snapshot.path) + '">Open</button></div>';
+      return '<div class="snapshot-row" data-graph-snapshot-path="' + escapeAttr(snapshot.path) + '"' + selected + '><div><div class="snapshot-name">' + escapeHtml(snapshot.path) + escapeHtml(active) + '</div><div class="snapshot-meta">Last modified: ' + escapeHtml(formatSnapshotDate(snapshot.mtime)) + ' · ' + escapeHtml(formatSnapshotSize(snapshot.size)) + '</div></div><div class="snapshot-actions"><button class="btn snapshot-open-btn" type="button" data-open-graph-snapshot="' + escapeAttr(snapshot.path) + '" data-open-graph-mode="auto">Auto</button><button class="btn snapshot-open-btn" type="button" data-open-graph-snapshot="' + escapeAttr(snapshot.path) + '" data-open-graph-mode="code">Code</button><button class="btn snapshot-open-btn" type="button" data-open-graph-snapshot="' + escapeAttr(snapshot.path) + '" data-open-graph-mode="tx">Tx</button></div></div>';
     }).join('');
     dom.graphSnapshotList.querySelectorAll('[data-open-graph-snapshot]').forEach((button) => {
       button.addEventListener('click', (event) => {
         event.stopPropagation();
-        openGraphSnapshot(button.getAttribute('data-open-graph-snapshot') || '');
+        openGraphSnapshot(button.getAttribute('data-open-graph-snapshot') || '', button.getAttribute('data-open-graph-mode') || 'auto');
       });
     });
     dom.graphSnapshotList.querySelectorAll('[data-graph-snapshot-path]').forEach((row) => {
@@ -340,7 +363,7 @@ export function createApp(bootstrap) {
     renderSnapshotPicker();
     dom.graphSnapshotDetails.textContent = 'Loading comparison for ' + path + '…';
     try {
-      const response = await fetch('/api/graph?path=' + encodeURIComponent(path));
+      const response = await fetch('/api/graph?path=' + encodeURIComponent(path) + '&mode=auto');
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || ('HTTP ' + response.status));
       const candidate = data.graph || {};
@@ -386,7 +409,7 @@ export function createApp(bootstrap) {
   }
   function rebuildGraphFromState({ resetSelections = true } = {}) {
     graph.clear();
-    fileColorByPath = makeFileColorMap(state.raw.nodes.map((n) => n.path || ''), palette);
+    fileColorByPath = makeFileColorMap(state.raw.nodes.map((n) => n.path || n.category || n.type || ''), palette);
     if (resetSelections) resetGraphSelections();
     refreshStateForCurrentMain();
     seedColumnLayout();
@@ -408,11 +431,11 @@ export function createApp(bootstrap) {
     else if (dom.inspect) dom.inspect.textContent = 'Ready.';
     applyVisualState(dom.search?.value || '');
   }
-  async function openGraphSnapshot(path) {
+  async function openGraphSnapshot(path, mode = 'auto') {
     if (!path) return;
-    if (dom.graphSnapshotStatus) dom.graphSnapshotStatus.textContent = 'Opening ' + path + '…';
+    if (dom.graphSnapshotStatus) dom.graphSnapshotStatus.textContent = 'Opening ' + path + ' as ' + mode + ' graph…';
     try {
-      const response = await fetch('/api/graph?path=' + encodeURIComponent(path));
+      const response = await fetch('/api/graph?path=' + encodeURIComponent(path) + '&mode=' + encodeURIComponent(mode));
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || ('HTTP ' + response.status));
       state = buildGraphState(data.graph);
@@ -422,7 +445,7 @@ export function createApp(bootstrap) {
       rebuildGraphFromState({ resetSelections: true });
       refreshGraphDependentViews();
       renderSnapshotPicker();
-      if (dom.graphSnapshotStatus) dom.graphSnapshotStatus.textContent = 'Opened ' + currentSnapshotPath + '. Last modified: ' + formatSnapshotDate(data.snapshot?.mtime) + '.';
+      if (dom.graphSnapshotStatus) dom.graphSnapshotStatus.textContent = 'Opened ' + currentSnapshotPath + ' as ' + graphTypeLabel() + ' graph. Last modified: ' + formatSnapshotDate(data.snapshot?.mtime) + '.';
     } catch (error) {
       if (dom.graphSnapshotStatus) dom.graphSnapshotStatus.textContent = 'Could not open ' + path + ': ' + (error?.message || error);
     }
@@ -469,9 +492,9 @@ export function createApp(bootstrap) {
 
   function refreshStateForCurrentMain() { recomputeMainComponentState(state); }
   function seedColumnLayout() {
-    const orderedPaths = [...state.nodesByPath.keys()].sort();
+    const orderedPaths = [...new Set(state.raw.nodes.map((node) => node.path || node.category || node.type || 'unknown'))].sort();
     orderedPaths.forEach((path, col) => {
-      const list = state.nodesByPath.get(path);
+      const list = state.raw.nodes.filter((node) => (node.path || node.category || node.type || 'unknown') === path);
       list.forEach((node, row) => {
         graph.addNode(node.key, {
           key: node.key,
@@ -482,11 +505,18 @@ export function createApp(bootstrap) {
           signature: node.signature || '',
           sourceSnippet: node.sourceSnippet || '',
           range: node.range || null,
-          borderColor: fileColorByPath.get(path || '') || '#8f9bb3',
+          category: node.category || '',
+          tracked: Boolean(node.tracked),
+          txHash: node.txHash || '',
+          amountEth: node.amountEth || '',
+          amountWei: node.amountWei || '',
+          blockNumber: node.blockNumber || '',
+          blockTime: node.blockTime || '',
+          borderColor: baseNodeBorderColor(node),
           x: col * 8 + ((row % 2) * 0.35),
           y: row * 1.8,
-          size: 10,
-          color: '#8f9bb3',
+          size: node.type === 'tx_transfer' ? 15 : 10,
+          color: isTxGraph() ? txNodeFillColor(node) : '#8f9bb3',
           forceLabel: node.key === state.currentMainKey
         });
       });
@@ -497,36 +527,39 @@ export function createApp(bootstrap) {
       const isMain = node.key === state.currentMainKey;
       const isDead = state.deadInMainComponent.has(node.key);
       const isUsed = state.usedInMainComponent.has(node.key);
-      const color = isMain ? '#63d7ff' : isDead ? '#ff7e7e' : isUsed ? '#67db8b' : '#8f9bb3';
+      const color = isTxGraph() ? txNodeFillColor(node) : isMain ? '#63d7ff' : isDead ? '#ff7e7e' : isUsed ? '#67db8b' : '#8f9bb3';
       state.baseNodeColor.set(node.key, color);
       if (graph.hasNode(node.key)) {
-        graph.setNodeAttribute(node.key, 'size', computeNodeSize({ state, nodeId: node.key, nodeSizeMode, nodeSizeBase, nodeSizeCodeFactor }));
+        const size = isTxGraph() && node.type === 'tx_transfer' ? nodeSizeBase + 7 : computeNodeSize({ state, nodeId: node.key, nodeSizeMode, nodeSizeBase, nodeSizeCodeFactor });
+        graph.setNodeAttribute(node.key, 'size', size);
         graph.setNodeAttribute(node.key, 'color', color);
-        graph.setNodeAttribute(node.key, 'borderColor', fileColorByPath.get(node.path || '') || '#8f9bb3');
+        graph.setNodeAttribute(node.key, 'borderColor', baseNodeBorderColor(node));
       }
     }
   }
   function addEdges() {
     let edgeId = 0;
     for (const edge of state.raw.edges) {
-      if (edge.type !== 'calls') continue;
+      if (!edgeIsRenderable(edge)) continue;
       if (!graph.hasNode(edge.source) || !graph.hasNode(edge.target)) continue;
       const bothMainComponent = state.mainComponent.has(edge.source) && state.mainComponent.has(edge.target);
       const bothUsed = state.usedInMainComponent.has(edge.source) && state.usedInMainComponent.has(edge.target);
-      const color = bothMainComponent ? (bothUsed ? '#58667f' : '#6b4040') : '#404852';
+      const txTransferEdge = isTxGraph() && (state.rawNodeByKey.get(edge.source)?.type === 'tx_transfer' || state.rawNodeByKey.get(edge.target)?.type === 'tx_transfer');
+      const color = isTxGraph() ? (txTransferEdge ? '#b9962f' : '#404852') : bothMainComponent ? (bothUsed ? '#58667f' : '#6b4040') : '#404852';
       const key = 'e' + edgeId++;
       state.baseEdgeColor.set(key, color);
-      graph.addDirectedEdgeWithKey(key, edge.source, edge.target, { color, size: bothUsed ? 2 : 1, type: 'line', sourceColor: graph.getNodeAttribute(edge.source, 'borderColor') || '#63d7ff', targetColor: graph.getNodeAttribute(edge.target, 'borderColor') || '#ff7e7e' });
+      graph.addDirectedEdgeWithKey(key, edge.source, edge.target, { color, size: isTxGraph() ? 2.5 : bothUsed ? 2 : 1, type: 'line', sourceColor: graph.getNodeAttribute(edge.source, 'borderColor') || '#63d7ff', targetColor: graph.getNodeAttribute(edge.target, 'borderColor') || '#ff7e7e', txHash: edge.txHash || '', amountEth: edge.amountEth || '', blockTime: edge.blockTime || '', classification: edge.classification || '' });
     }
   }
   function reapplyBaseEdgeStyles() {
     graph.forEachEdge((edge, attrs, source, target) => {
       const bothMainComponent = state.mainComponent.has(source) && state.mainComponent.has(target);
       const bothUsed = state.usedInMainComponent.has(source) && state.usedInMainComponent.has(target);
-      const color = bothMainComponent ? (bothUsed ? '#58667f' : '#6b4040') : '#404852';
+      const txTransferEdge = isTxGraph() && (state.rawNodeByKey.get(source)?.type === 'tx_transfer' || state.rawNodeByKey.get(target)?.type === 'tx_transfer');
+      const color = isTxGraph() ? (txTransferEdge ? '#b9962f' : '#404852') : bothMainComponent ? (bothUsed ? '#58667f' : '#6b4040') : '#404852';
       state.baseEdgeColor.set(edge, color);
       graph.setEdgeAttribute(edge, 'color', color);
-      graph.setEdgeAttribute(edge, 'size', bothUsed ? 2 : 1);
+      graph.setEdgeAttribute(edge, 'size', isTxGraph() ? 2.5 : bothUsed ? 2 : 1);
       graph.setEdgeAttribute(edge, 'sourceColor', graph.getNodeAttribute(source, 'borderColor') || '#63d7ff');
       graph.setEdgeAttribute(edge, 'targetColor', graph.getNodeAttribute(target, 'borderColor') || '#ff7e7e');
     });
@@ -569,11 +602,12 @@ export function createApp(bootstrap) {
     if (pathCursorIndex < 0 || pathCursorIndex >= currentPath.length) pathCursorIndex = 0;
     dom.pathList.innerHTML = currentPath.map((nodeId, idx) => {
       const node = state.rawNodeByKey.get(nodeId);
-      const fileColor = fileColorByPath.get(node?.path || '') || '#8f9bb3';
+      const fileColor = baseNodeBorderColor(node);
       const selected = idx === pathCursorIndex ? 'true' : 'false';
       const codeLines = estimateCodeSize(state, node || {});
+      const pathMeta = isTxGraph() ? ((node?.type || 'node') + (formatTxAmount(node) ? ' · ' + formatTxAmount(node) : '')) : codeLines + ' lines of code';
       const includeCode = pathSelectedNodeSet.has(nodeId) ? 'true' : 'false';
-      return '<button class="path-item" role="option" aria-selected="' + selected + '" data-selected="' + selected + '" data-node-id="' + escapeHtml(nodeId) + '" data-index="' + idx + '"><span class="path-step path-step-toggle" role="checkbox" data-path-code-toggle="' + escapeHtml(nodeId) + '" data-included="' + includeCode + '" aria-checked="' + includeCode + '">' + idx + '</span><span class="path-main"><span class="path-label">' + escapeHtml(node?.label || nodeId) + '</span><span class="path-file mono"><span class="selection-accent"><span class="selection-dot" style="background:' + escapeHtml(fileColor) + ';"></span><span style="color:' + escapeHtml(fileColor) + '">' + escapeHtml(node?.path || 'unknown') + '</span></span></span><span class="path-entity-meta mono">' + codeLines + ' lines of code</span></span></button>';
+      return '<button class="path-item" role="option" aria-selected="' + selected + '" data-selected="' + selected + '" data-node-id="' + escapeHtml(nodeId) + '" data-index="' + idx + '"><span class="path-step path-step-toggle" role="checkbox" data-path-code-toggle="' + escapeHtml(nodeId) + '" data-included="' + includeCode + '" aria-checked="' + includeCode + '">' + idx + '</span><span class="path-main"><span class="path-label">' + escapeHtml(node?.label || nodeId) + '</span><span class="path-file mono"><span class="selection-accent"><span class="selection-dot" style="background:' + escapeHtml(fileColor) + ';"></span><span style="color:' + escapeHtml(fileColor) + '">' + escapeHtml(node?.path || node?.category || node?.type || 'unknown') + '</span></span></span><span class="path-entity-meta mono">' + escapeHtml(pathMeta) + '</span></span></button>';
     }).join('');
     dom.pathList.querySelectorAll('[data-node-id]').forEach((el) => {
       el.addEventListener('click', () => activatePathRow(Number(el.getAttribute('data-index') || '0')));
@@ -744,12 +778,32 @@ export function createApp(bootstrap) {
     const attrs = graph.getNodeAttributes(nodeId);
     const outgoingList = graph.outboundNeighbors(nodeId).slice(0, 24).map((id) => graph.getNodeAttribute(id, 'label'));
     const incomingList = graph.inboundNeighbors(nodeId).slice(0, 24).map((id) => graph.getNodeAttribute(id, 'label'));
-    const status = nodeId === state.currentMainKey ? 'entrypoint' : state.deadInMainComponent.has(nodeId) ? 'dead code in main component' : state.usedInMainComponent.has(nodeId) ? 'used in main component' : 'outside main component';
+    const status = isTxGraph()
+      ? (node.type === 'tx_transfer' ? 'transfer amount node' : node.tracked ? 'tracked wallet' : 'wallet')
+      : nodeId === state.currentMainKey ? 'entrypoint' : state.deadInMainComponent.has(nodeId) ? 'dead code in main component' : state.usedInMainComponent.has(nodeId) ? 'used in main component' : 'outside main component';
     const preview = sourcePreview(state, node);
     const startLine = node.range?.start?.line || 1;
     const range = node.range ? node.range.start.line + ':' + node.range.start.column + ' - ' + node.range.end.line + ':' + node.range.end.column : 'unknown';
     const fileColor = attrs.borderColor || '#8f9bb3';
     dom.selection.innerHTML = '<span class="selection-accent"><span class="selection-dot" style="background:' + escapeHtml(fileColor) + '"></span><span>' + escapeHtml(attrs.label) + ' — ' + escapeHtml(status) + '</span></span>';
+    if (isTxGraph()) {
+      const txDetails = [
+        node.txHash ? 'tx hash: ' + node.txHash : '',
+        formatTxAmount(node) ? 'amount: ' + formatTxAmount(node) : '',
+        node.amountWei ? 'amount wei: ' + node.amountWei : '',
+        node.blockNumber ? 'block: ' + node.blockNumber : '',
+        node.blockTime ? 'time: ' + node.blockTime : '',
+      ].filter(Boolean).map((line) => '<span class="mono">' + escapeHtml(line) + '</span><br>').join('');
+      dom.inspect.innerHTML = '<strong>' + escapeHtml(attrs.label) + '</strong><br>' +
+        '<span class="mono">key: ' + escapeHtml(nodeId) + '</span><br>' +
+        'type: ' + escapeHtml(attrs.typeName || node.type || 'unknown') + '<br>' +
+        'category: ' + escapeHtml(node.category || 'unknown') + '<br>' +
+        'status: ' + escapeHtml(status) + '<br>' +
+        txDetails + '<br>' +
+        '<strong>Outgoing</strong>: ' + escapeHtml(outgoingList.join(', ') || 'none') + '<br><br>' +
+        '<strong>Incoming</strong>: ' + escapeHtml(incomingList.join(', ') || 'none');
+      return;
+    }
     dom.inspect.innerHTML = '<strong>' + escapeHtml(attrs.label) + '</strong><br>' +
       '<span class="mono">key: ' + escapeHtml(nodeId) + '</span><br>' +
       '<span class="mono">path: <span style="color:' + escapeHtml(fileColor) + '">' + escapeHtml(attrs.path || 'unknown') + '</span></span><br>' +
@@ -778,7 +832,12 @@ export function createApp(bootstrap) {
     if (matchOptions.name) {
       if (String(attrs.label || '').toLowerCase().includes(q)
         || String(node.key || '').toLowerCase().includes(q)
-        || String(attrs.signature || '').toLowerCase().includes(q)) return true;
+        || String(attrs.signature || '').toLowerCase().includes(q)
+        || String(node.type || '').toLowerCase().includes(q)
+        || String(node.category || '').toLowerCase().includes(q)
+        || String(node.txHash || '').toLowerCase().includes(q)
+        || String(node.amountEth || '').toLowerCase().includes(q)
+        || String(node.amountWei || '').toLowerCase().includes(q)) return true;
     }
     if (matchOptions.filename) {
       if (String(attrs.path || '').toLowerCase().includes(q)
@@ -816,9 +875,9 @@ export function createApp(bootstrap) {
     if (!container) return;
     const rows = summary.nodeIds.slice(0, 80).map((nodeId) => {
       const node = state.rawNodeByKey.get(nodeId);
-      const fileColor = fileColorByPath.get(node?.path || '') || '#8f9bb3';
+      const fileColor = baseNodeBorderColor(node);
       const codeLines = estimateCodeSize(state, node || {});
-      return '<div class="mutation-hint-row"><span>' + escapeHtml(node?.label || nodeId) + '</span><span style="color:' + escapeHtml(fileColor) + '">' + escapeHtml(node?.path || 'unknown') + ' · ' + codeLines + ' lines</span></div>';
+      return '<div class="mutation-hint-row"><span>' + escapeHtml(node?.label || nodeId) + '</span><span style="color:' + escapeHtml(fileColor) + '">' + escapeHtml(node?.path || node?.category || node?.type || 'unknown') + ' · ' + codeLines + ' lines</span></div>';
     }).join('');
     const overflow = summary.nodeIds.length > 80 ? '<div class="mutation-hint-empty">…and ' + (summary.nodeIds.length - 80) + ' more nodes.</div>' : '';
     container.innerHTML = '<div class="mutation-hint"><div class="mutation-hint-title">' + escapeHtml(title) + ': ' + summary.nodeIds.length + ' nodes · ' + summary.lines + ' lines</div><div class="mutation-hint-list">' + (rows || '<div class="mutation-hint-empty">No nodes will change.</div>') + overflow + '</div></div>';
@@ -1083,7 +1142,7 @@ export function createApp(bootstrap) {
     }
     const rows = uniqueMatches.slice(0, 120).map((match) => {
       const node = state.rawNodeByKey.get(match.nodeId);
-      const fileColor = fileColorByPath.get(node?.path || '') || '#8f9bb3';
+      const fileColor = baseNodeBorderColor(node);
       const enabled = !disabledBulkMatchKeys.has(match.key);
       return '<div class="bulk-match-row" data-enabled="' + (enabled ? 'true' : 'false') + '"><button class="bulk-match-toggle btn" type="button" data-bulk-match-key="' + escapeAttr(match.key) + '">' + (enabled ? 'On' : 'Off') + '</button><span><mark>' + escapeHtml(match.matchedText) + '</mark> from <span class="mono">' + escapeHtml(match.rawWord) + '</span></span><span style="color:' + escapeHtml(fileColor) + '">' + escapeHtml(node?.label || match.nodeId) + ' · ' + escapeHtml(match.reason) + '</span></div>';
     }).join('');
@@ -1112,9 +1171,10 @@ export function createApp(bootstrap) {
     dom.selectedStatus.textContent = items.length ? ('Selected-state nodes: ' + items.length + ' · ' + totalLines + ' total lines ready to copy.') : 'No selected-state nodes yet.';
     dom.selectedList.innerHTML = items.map((nodeId, idx) => {
       const node = state.rawNodeByKey.get(nodeId);
-      const fileColor = fileColorByPath.get(node?.path || '') || '#8f9bb3';
+      const fileColor = baseNodeBorderColor(node);
       const codeLines = estimateCodeSize(state, node || {});
-      return '<div class="path-item selected-item"><span class="path-step">' + idx + '</span><span class="path-main"><span class="path-label">' + escapeHtml(node?.label || nodeId) + '</span><span class="path-file mono"><span class="selection-accent"><span class="selection-dot" style="background:' + escapeHtml(fileColor) + ';"></span><span style="color:' + escapeHtml(fileColor) + '">' + escapeHtml(node?.path || 'unknown') + '</span></span></span><span class="path-entity-meta mono">' + codeLines + ' lines of code</span></span><button class="btn selected-remove-btn" data-selected-remove-node="' + escapeHtml(nodeId) + '">Remove node</button></div>';
+      const pathMeta = isTxGraph() ? ((node?.type || 'node') + (formatTxAmount(node) ? ' · ' + formatTxAmount(node) : '')) : codeLines + ' lines of code';
+      return '<div class="path-item selected-item"><span class="path-step">' + idx + '</span><span class="path-main"><span class="path-label">' + escapeHtml(node?.label || nodeId) + '</span><span class="path-file mono"><span class="selection-accent"><span class="selection-dot" style="background:' + escapeHtml(fileColor) + ';"></span><span style="color:' + escapeHtml(fileColor) + '">' + escapeHtml(node?.path || node?.category || node?.type || 'unknown') + '</span></span></span><span class="path-entity-meta mono">' + escapeHtml(pathMeta) + '</span></span><button class="btn selected-remove-btn" data-selected-remove-node="' + escapeHtml(nodeId) + '">Remove node</button></div>';
     }).join('');
     dom.selectedList.querySelectorAll('[data-selected-remove-node]').forEach((el) => {
       el.addEventListener('click', () => {
@@ -1165,9 +1225,9 @@ export function createApp(bootstrap) {
     if (dom.selectedMutationHints) dom.selectedMutationHints.innerHTML = hintParts.map(([title, summary]) => {
       const rows = summary.nodeIds.slice(0, 20).map((nodeId) => {
         const node = state.rawNodeByKey.get(nodeId);
-        const fileColor = fileColorByPath.get(node?.path || '') || '#8f9bb3';
+        const fileColor = baseNodeBorderColor(node);
         const codeLines = estimateCodeSize(state, node || {});
-        return '<div class="mutation-hint-row"><span>' + escapeHtml(node?.label || nodeId) + '</span><span style="color:' + escapeHtml(fileColor) + '">' + escapeHtml(node?.path || 'unknown') + ' · ' + codeLines + ' lines</span></div>';
+        return '<div class="mutation-hint-row"><span>' + escapeHtml(node?.label || nodeId) + '</span><span style="color:' + escapeHtml(fileColor) + '">' + escapeHtml(node?.path || node?.category || node?.type || 'unknown') + ' · ' + codeLines + ' lines</span></div>';
       }).join('');
       const overflow = summary.nodeIds.length > 20 ? '<div class="mutation-hint-empty">…and ' + (summary.nodeIds.length - 20) + ' more.</div>' : '';
       return '<details class="mutation-hint"><summary class="mutation-hint-title">' + escapeHtml(title) + ': ' + summary.nodeIds.length + ' nodes · ' + summary.lines + ' lines</summary><div class="mutation-hint-list">' + (rows || '<div class="mutation-hint-empty">No nodes will change.</div>') + overflow + '</div></details>';
@@ -1202,14 +1262,14 @@ export function createApp(bootstrap) {
     searchHintNodeSet = new Set(candidates.map(({ node }) => node.key));
     dom.searchHints.innerHTML = options.join('');
     dom.searchHintsOverlay.innerHTML = candidates.map(({ node }) => {
-      const fileColor = fileColorByPath.get(node.path || '') || '#8f9bb3';
+      const fileColor = baseNodeBorderColor(node);
       const codeMatch = codeMatchLineForHint(node, q);
       const codeMatchHtml = codeMatch ? '<span class="hint-code-line"><span class="hint-code-ln">L' + escapeHtml(codeMatch.line) + '</span><span class="hint-code-src">' + codeMatch.html + '</span></span>' : '';
       const inSelectedState = selectedStateNodeSet.has(node.key);
       const isFocused = selectedNode === node.key;
       const stateColor = isFocused ? '#ffd54f' : inSelectedState ? '#b48dff' : fileColor;
       const stateBadges = (isFocused ? '<span class="hint-state-badge" data-kind="focused">focused</span>' : '') + (inSelectedState ? '<span class="hint-state-badge" data-kind="selected">selected</span>' : '');
-      return '<button class="hint-row" data-hint-node="' + escapeHtml(node.key) + '" data-selected-state="' + (inSelectedState ? 'true' : 'false') + '" data-focused-node="' + (isFocused ? 'true' : 'false') + '" style="--hint-border-color:' + escapeHtml(stateColor) + '; --hint-file-color:' + escapeHtml(fileColor) + ';"><span class="hint-main"><span>' + escapeHtml(node.label || node.key) + stateBadges + '</span>' + codeMatchHtml + '</span><span class="hint-meta" style="color:' + escapeHtml(fileColor) + '">' + escapeHtml(node.path || 'unknown') + ' · ' + escapeHtml(nodeLineShareText(node)) + '</span></button>';
+      return '<button class="hint-row" data-hint-node="' + escapeHtml(node.key) + '" data-selected-state="' + (inSelectedState ? 'true' : 'false') + '" data-focused-node="' + (isFocused ? 'true' : 'false') + '" style="--hint-border-color:' + escapeHtml(stateColor) + '; --hint-file-color:' + escapeHtml(fileColor) + ';"><span class="hint-main"><span>' + escapeHtml(node.label || node.key) + stateBadges + '</span>' + codeMatchHtml + '</span><span class="hint-meta" style="color:' + escapeHtml(fileColor) + '">' + escapeHtml(node.path || node.category || node.type || 'unknown') + ' · ' + escapeHtml(nodeLineShareText(node)) + '</span></button>';
     }).join('');
     dom.searchHintsOverlay.hidden = candidates.length === 0;
   }
@@ -1236,12 +1296,12 @@ export function createApp(bootstrap) {
       else if (hasPath && onPath) color = '#ffd54f';
       else if (inSelectedState) color = '#84f8ff';
       else if (!related) color = 'rgba(255,255,255,0.14)';
-      const baseBorderColor = fileColorByPath.get(rawNode?.path || attrs.path || '') || '#8f9bb3';
+      const baseBorderColor = baseNodeBorderColor(rawNode || attrs);
       const stateBorderColor = inSearchHints && selectedNode === node ? '#ffd54f' : inSearchHints && inSelectedState ? '#b48dff' : baseBorderColor;
       graph.setNodeAttribute(node, 'color', color);
       graph.setNodeAttribute(node, 'borderColor', stateBorderColor);
       graph.setNodeAttribute(node, 'borderAlpha', hidden ? 0 : (!related ? 0.30 : 1));
-      const baseSize = computeNodeSize({ state, nodeId: node, nodeSizeMode, nodeSizeBase, nodeSizeCodeFactor });
+      const baseSize = isTxGraph() && rawNode?.type === 'tx_transfer' ? nodeSizeBase + 7 : computeNodeSize({ state, nodeId: node, nodeSizeMode, nodeSizeBase, nodeSizeCodeFactor });
       graph.setNodeAttribute(node, 'size', onPath ? baseSize + 3 : hoveredNode === node || selectedNode === node ? baseSize + 2 : baseSize);
       graph.setNodeAttribute(node, 'forceLabel', hoveredNode === node || node === state.currentMainKey || onPath || selectedNode === node);
     });
@@ -1260,7 +1320,7 @@ export function createApp(bootstrap) {
       if (isOutgoingSelectedEdge) edgeColor = selectedOutgoingColor;
       if (onPath) edgeColor = '#ffd54f';
       graph.setEdgeAttribute(edge, 'color', edgeColor);
-      graph.setEdgeAttribute(edge, 'size', onPath ? 4 : hoveredNode && active ? 3 : 2);
+      graph.setEdgeAttribute(edge, 'size', onPath ? 4 : hoveredNode && active ? 3 : (isTxGraph() ? 2.5 : 2));
     });
     sigma.refresh();
   }

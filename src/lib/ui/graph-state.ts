@@ -21,8 +21,9 @@ export function buildGraphState(raw) {
     outgoing.set(node.key, []);
     incoming.set(node.key, []);
   }
+  const traversableEdgeTypes = raw.graphType === 'code' ? new Set(['calls']) : null;
   for (const edge of raw.edges) {
-    if (edge.type !== 'calls') continue;
+    if (traversableEdgeTypes && !traversableEdgeTypes.has(edge.type)) continue;
     if (!outgoing.has(edge.source) || !incoming.has(edge.target)) continue;
     outgoing.get(edge.source).push(edge.target);
     incoming.get(edge.target).push(edge.source);
