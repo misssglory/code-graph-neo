@@ -98,6 +98,7 @@ export function renderHtml(graphData: GraphData, config: any = {}): string {
     .status-box { margin-top: 8px; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--border); background: rgba(255,255,255,0.04); color: var(--muted); font-size: 12px; line-height: 1.45; }
     .snapshot-list { display: grid; gap: 8px; margin-top: 12px; }
     .snapshot-row { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: start; padding: 10px; border: 1px solid var(--border); border-radius: 10px; background: rgba(255,255,255,0.035); color: var(--text); text-align: left; cursor: pointer; }
+    .snapshot-actions { display: flex; flex-direction: column; gap: 6px; align-items: stretch; }
     .snapshot-row:hover, .snapshot-row[data-selected="true"] { background: rgba(255,255,255,0.07); border-color: rgba(255,255,255,0.24); }
     .snapshot-name { color: var(--text); font-family: var(--mono); font-size: 12px; overflow-wrap: anywhere; }
     .snapshot-meta { color: var(--muted); font-size: 11px; margin-top: 3px; }
@@ -194,12 +195,13 @@ export function renderHtml(graphData: GraphData, config: any = {}): string {
     <div id="right-pane-wrap" class="right-pane-wrap">
       <aside id="right-pane" class="right-pane">
         <div class="topbar">
-          <h1>Code graph</h1>
+          <h1 id="app-title">${graphData.graphType === 'tx' ? 'Tx graph' : 'Code graph'}</h1>
           <div class="row"><button id="collapse-sidebar" class="btn arrow-btn" aria-label="Collapse panel" title="Collapse panel">→</button></div>
         </div>
         <p>This viewer combines code inspection, settings, and path exploration in one transparent floating panel. Use the path list like a mini fzf: arrows or Ctrl-J/Ctrl-K move, Enter locks selection.</p>
         <div class="chips">
-          <span id="summary-main" class="chip mainchip mono">main: ${graphData.mainKey ?? 'not found'}</span>
+          <span id="summary-type" class="chip mono">type: ${graphData.graphType}</span>
+          <span id="summary-main" class="chip mainchip mono">${graphData.graphType === 'tx' ? 'focus wallet' : 'main'}: ${graphData.mainKey ?? 'not found'}</span>
           <span class="chip reachchip">used in main component</span>
           <span class="chip unreachchip">dead in main component</span>
           <span class="chip outsidechip">outside main component</span>
@@ -248,7 +250,7 @@ export function renderHtml(graphData: GraphData, config: any = {}): string {
                 <button id="graph-snapshot-refresh" class="btn">Refresh list</button>
               </div>
               <div id="graph-snapshot-status" class="status-box">Loading snapshots from public/*.json…</div>
-              <div id="graph-snapshot-details" class="status-box">Click a graph row to compare it with the currently open graph.</div>
+              <div id="graph-snapshot-details" class="status-box">Click a graph row to compare it with the currently open graph. Use Code or Tx to override automatic format detection.</div>
               <div id="graph-snapshot-list" class="snapshot-list"></div>
             </div>
           </section>
