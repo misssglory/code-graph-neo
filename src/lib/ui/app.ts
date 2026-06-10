@@ -510,6 +510,10 @@ export function createApp(bootstrap) {
   let subgraphMaxDepth = 3;
   let subgraphDetailRequest: null | { mode: string; depth: number } = null;
   let bulkMatchState = { text: '', tokens: [], matches: [], unresolved: [], nodeIds: [], processed: 0, total: 0, running: false };
+  let insertFunctionTabs = [];
+  let insertFunctionActiveTabId = '';
+  let insertFunctionNextTabId = 1;
+  let insertFunctionMatches = [];
   let layoutMode = new URL(window.location.href).searchParams.get('layout') || persistedSettings.layoutMode || graphConfig.layout || 'columns';
   let mainComponentFocusMode = false;
   let rightPaneWidth = Number(persistedSettings.rightPaneWidth ?? uiConfig.pane_width ?? 420);
@@ -811,6 +815,159 @@ export function createApp(bootstrap) {
         renderCodeBlock(Prism, code, startLine, showLineNumbers, wordWrapCode) + '</div>';
     }).join('');
   }
+  function firstMeaningfulLine(text) {
+    return String(text || '').split('\n').map((line) => line.trim()).find(Boolean) || '';
+  }
+  function extractFunctionNameFromLine(line) {
+    const rustMatch = String(line || '').match(/\bfn\s+([A-Za-z_][A-Za-z0-9_]*)\b/);
+    if (rustMatch) return rustMatch[1];
+    const genericMatch = String(line || '').match(/\b(?:function|def|func)\s+([A-Za-z_][A-Za-z0-9_]*)\b/);
+    if (genericMatch) return genericMatch[1];
+    const assignmentMatch = String(line || '').match(/^\s*(?:const|let|var)?\s*([A-Za-z_][A-Za-z0-9_]*)\s*[=:]/);
+    return assignmentMatch ? assignmentMatch[1] : '';
+  }
+  function normalizeCodeDistanceText(text, maxLength = 900) {
+    return String(text || '').toLowerCase().replace(/\/\/.*$/gm, '').replace(/\s+/g, ' ').trim().slice(0, maxLength);
+  }
+  function boundedLevenshteinRatio(a, b) {
+    const left = normalizeCodeDistanceText(a);
+    const right = normalizeCodeDistanceText(b);
+    if (!left && !right) return 0;
+    if (!left || !right) return 1;
+    if (left === right) return 0;
+    const m = left.length;
+    const n = right.length;
+    let prev = new Array(n + 1);
+    let curr = new Array(n + 1);
+    for (let j = 0; j <= n; j++) prev[j] = j;
+    for (let i = 1; i <= m; i++) {
+      curr[0] = i;
+      const ca = left.charCodeAt(i - 1);
+      for (let j = 1; j <= n; j++) {
+        const cost = ca === right.charCodeAt(j - 1) ? 0 : 1;
+        curr[j] = Math.min(prev[j] + 1, curr[j - 1] + 1, prev[j - 1] + cost);
+      }
+      const tmp = prev;
+      prev = curr;
+      curr = tmp;
+    }
+    return prev[n] / Math.max(m, n);
+  }
+  function calculateInsertFunctionMatches(inputText) {
+    const text = String(inputText || '').trim();
+    if (!text) return [];
+    const firstLine = firstMeaningfulLine(text);
+    const functionName = extractFunctionNameFromLine(firstLine).toLowerCase();
+    const rows = [];
+    for (const node of state.raw.nodes || []) {
+      const preview = sourcePreview(state, node || {});
+      if (!preview) continue;
+      const label = String(node.label || node.key || '');
+      const labelLower = label.toLowerCase();
+      const nodeFirstLine = firstMeaningfulLine(preview);
+      let nameScore = 1;
+      let reason = 'code distance';
+      if (functionName) {
+        if (labelLower === functionName || labelLower.endsWith('::' + functionName) || labelLower.endsWith('.' + functionName)) {
+          nameScore = 0;
+          reason = 'name exact';
+        } else if (labelLower.includes(functionName)) {
+          nameScore = 0.16;
+          reason = 'name contains';
+        }
+      }
+      const firstLineScore = boundedLevenshteinRatio(firstLine, nodeFirstLine);
+      const codeScore = boundedLevenshteinRatio(text, preview);
+      const score = Math.min(nameScore * 0.62 + firstLineScore * 0.18 + codeScore * 0.20, firstLineScore * 0.38 + codeScore * 0.62);
+      rows.push({ nodeId: node.key, label, path: node.path || node.category || node.type || 'unknown', reason, score, firstLineScore, codeScore });
+    }
+    return rows.sort((a, b) => a.score - b.score || a.label.localeCompare(b.label)).slice(0, 8);
+  }
+  function buildUnifiedDiffLines(oldText, newText) {
+    const oldLines = String(oldText || '').split('\n');
+    const newLines = String(newText || '').split('\n');
+    if (oldLines.length * newLines.length > 90000) {
+      return [
+        ...oldLines.map((line) => ({ kind: 'del', text: '- ' + line })),
+        ...newLines.map((line) => ({ kind: 'add', text: '+ ' + line })),
+      ];
+    }
+    const dp = Array.from({ length: oldLines.length + 1 }, () => new Array(newLines.length + 1).fill(0));
+    for (let i = oldLines.length - 1; i >= 0; i--) {
+      for (let j = newLines.length - 1; j >= 0; j--) {
+        dp[i][j] = oldLines[i] === newLines[j] ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1]);
+      }
+    }
+    const out = [];
+    let i = 0;
+    let j = 0;
+    while (i < oldLines.length && j < newLines.length) {
+      if (oldLines[i] === newLines[j]) {
+        out.push({ kind: 'ctx', text: '  ' + oldLines[i] });
+        i += 1;
+        j += 1;
+      } else if (dp[i + 1][j] >= dp[i][j + 1]) {
+        out.push({ kind: 'del', text: '- ' + oldLines[i] });
+        i += 1;
+      } else {
+        out.push({ kind: 'add', text: '+ ' + newLines[j] });
+        j += 1;
+      }
+    }
+    while (i < oldLines.length) out.push({ kind: 'del', text: '- ' + oldLines[i++] });
+    while (j < newLines.length) out.push({ kind: 'add', text: '+ ' + newLines[j++] });
+    return out;
+  }
+  function createInsertFunctionTab(inputText, nodeId = '') {
+    const match = nodeId ? insertFunctionMatches.find((item) => item.nodeId === nodeId) : insertFunctionMatches.find((item) => !insertFunctionTabs.some((tab) => tab.nodeId === item.nodeId));
+    const chosenNodeId = nodeId || match?.nodeId || insertFunctionMatches[0]?.nodeId || '';
+    const node = state.rawNodeByKey.get(chosenNodeId);
+    const id = 'insert-tab-' + insertFunctionNextTabId++;
+    return { id, nodeId: chosenNodeId, code: String(inputText || ''), title: node?.label || match?.label || 'new match', locked: Boolean(nodeId) };
+  }
+  function ensureInsertFunctionTab() {
+    if (!dom.insertFunctionInput) return null;
+    if (!insertFunctionTabs.length) {
+      insertFunctionTabs.push(createInsertFunctionTab(dom.insertFunctionInput.value));
+      insertFunctionActiveTabId = insertFunctionTabs[0].id;
+    }
+    let active = insertFunctionTabs.find((tab) => tab.id === insertFunctionActiveTabId) || insertFunctionTabs[0];
+    insertFunctionActiveTabId = active.id;
+    return active;
+  }
+  function renderInsertFunctionViews() {
+    if (!dom.insertFunctionInput || !dom.insertFunctionSubtabs || !dom.insertFunctionMatches || !dom.insertFunctionCodeView) return;
+    const inputText = dom.insertFunctionInput.value || '';
+    insertFunctionMatches = calculateInsertFunctionMatches(inputText);
+    const active = ensureInsertFunctionTab();
+    if (active) {
+      active.code = inputText;
+      if (!active.locked && insertFunctionMatches[0]) active.nodeId = insertFunctionMatches[0].nodeId;
+      if (active.nodeId && !state.rawNodeByKey.has(active.nodeId) && insertFunctionMatches[0]) active.nodeId = insertFunctionMatches[0].nodeId;
+      active.title = state.rawNodeByKey.get(active.nodeId)?.label || active.title || 'new match';
+    }
+    dom.insertFunctionSubtabs.innerHTML = insertFunctionTabs.map((tab) => {
+      const activeAttr = tab.id === insertFunctionActiveTabId ? 'true' : 'false';
+      const title = state.rawNodeByKey.get(tab.nodeId)?.label || tab.title || 'new match';
+      return '<button class="insert-function-tab" type="button" data-insert-tab-id="' + escapeAttr(tab.id) + '" data-active="' + activeAttr + '" title="' + escapeAttr(title) + '"><span class="insert-function-tab-label">' + escapeHtml(title) + '</span><span class="insert-function-tab-close" data-insert-tab-close="' + escapeAttr(tab.id) + '" aria-label="Close tab">×</span></button>';
+    }).join('') + '<button class="btn insert-function-add-tab" type="button" data-insert-add-tab title="Add subtab">+</button>';
+    if (!inputText.trim()) {
+      dom.insertFunctionStatus.textContent = 'Paste function code to find the most relevant existing node.';
+      dom.insertFunctionMatches.innerHTML = '<div class="path-empty">No function code entered.</div>';
+      dom.insertFunctionCodeView.innerHTML = '<div class="path-empty">Paste a function to build a diff.</div>';
+      return;
+    }
+    dom.insertFunctionStatus.textContent = insertFunctionMatches.length ? 'Found ' + insertFunctionMatches.length + ' candidate node(s). Best match uses ' + insertFunctionMatches[0].reason + ' with ' + Math.round((1 - insertFunctionMatches[0].score) * 100) + '% relevance.' : 'No source-backed nodes are available to compare.';
+    dom.insertFunctionMatches.innerHTML = insertFunctionMatches.map((match) => {
+      const isActive = active?.nodeId === match.nodeId ? 'true' : 'false';
+      return '<button class="insert-function-match" type="button" data-insert-match-node="' + escapeAttr(match.nodeId) + '" data-active="' + isActive + '"><span class="insert-function-match-main"><span class="insert-function-match-name">' + escapeHtml(match.label || match.nodeId) + '</span><span class="insert-function-match-meta">' + escapeHtml(match.path) + ' · ' + escapeHtml(match.reason) + ' · line ' + Math.round((1 - match.firstLineScore) * 100) + '% · code ' + Math.round((1 - match.codeScore) * 100) + '%</span></span><span class="insert-function-match-score">' + Math.round((1 - match.score) * 100) + '%</span></button>';
+    }).join('') || '<div class="path-empty">No candidate nodes found.</div>';
+    const node = active?.nodeId ? state.rawNodeByKey.get(active.nodeId) : null;
+    const oldCode = sourcePreview(state, node || {}) || '';
+    const diffRows = buildUnifiedDiffLines(oldCode, inputText).map((line) => '<span class="diff-line" data-kind="' + line.kind + '">' + escapeHtml(line.text || ' ') + '</span>').join('');
+    dom.insertFunctionCodeView.innerHTML = '<div class="insert-function-diff-meta"><span>Matched node: ' + escapeHtml(node?.label || active?.nodeId || 'none') + '</span><span>' + escapeHtml(node?.path || 'unknown') + '</span></div><pre class="diff-block" aria-label="Unified diff">' + diffRows + '</pre>';
+  }
+
   function updatePathSelectionSummary() {
     const selectedPath = currentPath.filter((nodeId) => pathSelectedNodeSet.has(nodeId));
     const totalLines = selectedPath.reduce((sum, nodeId) => {
@@ -1318,6 +1475,7 @@ export function createApp(bootstrap) {
     updateSelectedMutationButtonLabels();
     renderSubgraphSummary();
     updateBulkTextMutationViews();
+    renderInsertFunctionViews();
   }
 
   function updateSearchMutationViews(query = '') {
@@ -1728,6 +1886,61 @@ export function createApp(bootstrap) {
   dom.bulkMatchAnnotations?.addEventListener('click', (event) => { const target = event.target; if (!(target instanceof Element)) return; const button = target.closest('[data-bulk-match-key]'); if (button) toggleBulkMatch(button.getAttribute('data-bulk-match-key')); });
   dom.bulkAddBtn?.addEventListener('click', () => commitSelectionMutation('Add bulk text matches', () => parseBulkTextNodeIds().nodeIds.forEach((n) => selectedStateNodeSet.add(n))));
   dom.bulkRemoveBtn?.addEventListener('click', () => commitSelectionMutation('Remove bulk text matches', () => parseBulkTextNodeIds().nodeIds.forEach((n) => selectedStateNodeSet.delete(n))));
+  dom.insertFunctionInput?.addEventListener('input', () => {
+    const active = insertFunctionTabs.find((tab) => tab.id === insertFunctionActiveTabId);
+    if (active) active.code = dom.insertFunctionInput.value || '';
+    renderInsertFunctionViews();
+  });
+  dom.insertFunctionSubtabs?.addEventListener('click', (event) => {
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+    const close = target.closest('[data-insert-tab-close]');
+    if (close) {
+      event.stopPropagation();
+      const tabId = close.getAttribute('data-insert-tab-close');
+      const index = insertFunctionTabs.findIndex((tab) => tab.id === tabId);
+      insertFunctionTabs = insertFunctionTabs.filter((tab) => tab.id !== tabId);
+      if (insertFunctionActiveTabId === tabId) {
+        insertFunctionActiveTabId = (insertFunctionTabs[Math.max(0, index - 1)] || insertFunctionTabs[0])?.id || '';
+        const active = insertFunctionTabs.find((tab) => tab.id === insertFunctionActiveTabId);
+        if (active && dom.insertFunctionInput.value !== active.code) dom.insertFunctionInput.value = active.code || '';
+      }
+      renderInsertFunctionViews();
+      return;
+    }
+    if (target.closest('[data-insert-add-tab]')) {
+      insertFunctionMatches = calculateInsertFunctionMatches(dom.insertFunctionInput?.value || '');
+      const tab = createInsertFunctionTab(dom.insertFunctionInput?.value || '');
+      insertFunctionTabs.push(tab);
+      insertFunctionActiveTabId = tab.id;
+      renderInsertFunctionViews();
+      return;
+    }
+    const tabButton = target.closest('[data-insert-tab-id]');
+    if (tabButton) {
+      const tabId = tabButton.getAttribute('data-insert-tab-id') || '';
+      const active = insertFunctionTabs.find((tab) => tab.id === tabId);
+      if (active) {
+        insertFunctionActiveTabId = active.id;
+        if (dom.insertFunctionInput.value !== active.code) dom.insertFunctionInput.value = active.code || '';
+        renderInsertFunctionViews();
+      }
+    }
+  });
+  dom.insertFunctionMatches?.addEventListener('click', (event) => {
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+    const button = target.closest('[data-insert-match-node]');
+    if (!button) return;
+    const nodeId = button.getAttribute('data-insert-match-node') || '';
+    const active = ensureInsertFunctionTab();
+    if (active) {
+      active.nodeId = nodeId;
+      active.title = state.rawNodeByKey.get(nodeId)?.label || active.title || 'new match';
+      active.locked = true;
+    }
+    renderInsertFunctionViews();
+  });
   dom.selectedCopyBtn.addEventListener('click', async () => { const text = [...selectedStateNodeSet].map((nodeId) => { const node = state.rawNodeByKey.get(nodeId); const preview = sourcePreview(state, node || {}) || 'No source snippet available'; const startLine = node?.range?.start?.line || 1; return '// file: ' + (node?.path || 'unknown') + '\n' + withLineNumbers(preview, startLine, showLineNumbers); }).join('\n\n'); await navigator.clipboard.writeText(text); dom.selectedStatus.textContent = 'Copied ' + selectedStateNodeSet.size + ' selected code block(s).'; });
   dom.pathReverseBtn.addEventListener('click', () => {
     const from = dom.pathFromInput.value;
@@ -1761,7 +1974,7 @@ export function createApp(bootstrap) {
   });
   dom.renderEdgeDirectionToggle.addEventListener('change', () => { renderEdgeDirection = dom.renderEdgeDirectionToggle.checked; sigma.refresh(); saveGlobalPersistence(); });
   dom.lineNumbersToggle.addEventListener('change', () => { showLineNumbers = dom.lineNumbersToggle.checked; if (selectedNode) updateInspect(selectedNode); renderPathCodeView(); updateSelectedStateViews(); updateAllMutationViews(); saveGlobalPersistence(); });
-  dom.wordWrapToggle.addEventListener('change', () => { wordWrapCode = dom.wordWrapToggle.checked; if (selectedNode) updateInspect(selectedNode); renderPathCodeView(); updateSelectedStateViews(); saveGlobalPersistence(); });
+  dom.wordWrapToggle.addEventListener('change', () => { wordWrapCode = dom.wordWrapToggle.checked; if (selectedNode) updateInspect(selectedNode); renderPathCodeView(); updateSelectedStateViews(); renderInsertFunctionViews(); saveGlobalPersistence(); });
   dom.layoutModeSelect.addEventListener('change', () => {
     layoutMode = dom.layoutModeSelect.value;
     const next = new URL(window.location.href);
