@@ -506,6 +506,9 @@ export function createApp(bootstrap) {
   let bulkNameMatchMode = 'full';
   let bulkFilenameMatchMode = 'full';
   let bulkMatchJobId = 0;
+  let subgraphDirection = 'outgoing';
+  let subgraphMaxDepth = 3;
+  let subgraphDetailRequest: null | { mode: string; depth: number } = null;
   let bulkMatchState = { text: '', tokens: [], matches: [], unresolved: [], nodeIds: [], processed: 0, total: 0, running: false };
   let layoutMode = new URL(window.location.href).searchParams.get('layout') || persistedSettings.layoutMode || graphConfig.layout || 'columns';
   let mainComponentFocusMode = false;
@@ -982,6 +985,66 @@ export function createApp(bootstrap) {
     const overflow = summary.nodeIds.length > 80 ? '<div class="mutation-hint-empty">…and ' + (summary.nodeIds.length - 80) + ' more nodes.</div>' : '';
     container.innerHTML = '<div class="mutation-hint"><div class="mutation-hint-title">' + escapeHtml(title) + ': ' + summary.nodeIds.length + ' nodes · ' + summary.lines + ' lines</div><div class="mutation-hint-list">' + (rows || '<div class="mutation-hint-empty">No nodes will change.</div>') + overflow + '</div></div>';
   }
+
+  function subgraphNeighbors(nodeId) {
+    if (!nodeId || !graph.hasNode(nodeId)) return [];
+    return subgraphDirection === 'incoming' ? graph.inboundNeighbors(nodeId) : graph.outboundNeighbors(nodeId);
+  }
+  function subgraphDepthNodeIds(maxDepth = subgraphMaxDepth) {
+    if (!selectedNode || !graph.hasNode(selectedNode)) return [];
+    const depthLimit = Math.max(0, Math.min(25, Number(maxDepth) || 0));
+    const byDepth = Array.from({ length: depthLimit + 1 }, () => []);
+    const seen = new Set([selectedNode]);
+    const queue = [{ nodeId: selectedNode, depth: 0 }];
+    while (queue.length) {
+      const { nodeId, depth } = queue.shift();
+      if (depth <= depthLimit) byDepth[depth].push(nodeId);
+      if (depth >= depthLimit) continue;
+      for (const next of subgraphNeighbors(nodeId)) {
+        if (seen.has(next)) continue;
+        seen.add(next);
+        queue.push({ nodeId: next, depth: depth + 1 });
+      }
+    }
+    const cumulative = [];
+    const cumulativeSet = new Set();
+    for (let depth = 0; depth <= depthLimit; depth++) {
+      for (const nodeId of byDepth[depth]) cumulativeSet.add(nodeId);
+      cumulative.push([...cumulativeSet]);
+    }
+    return cumulative;
+  }
+  function renderSubgraphSummary() {
+    if (!dom.subgraphDepthList || !dom.subgraphStatus) return;
+    const focusNode = selectedNode ? state.rawNodeByKey.get(selectedNode) : null;
+    if (!selectedNode || !focusNode) {
+      dom.subgraphStatus.textContent = 'Click a graph node to focus it, then choose outgoing or ingoing BFS expansion.';
+      dom.subgraphDepthList.innerHTML = '<div class="path-empty">No focused node.</div>';
+      if (dom.subgraphDetail) dom.subgraphDetail.innerHTML = '';
+      return;
+    }
+    const layers = subgraphDepthNodeIds();
+    const directionLabel = subgraphDirection === 'incoming' ? 'ingoing' : 'outgoing';
+    dom.subgraphStatus.textContent = 'Focused on ' + (focusNode.label || selectedNode) + '. Showing cumulative ' + directionLabel + ' BFS subgraphs up to length ' + Math.max(0, layers.length - 1) + '.';
+    dom.subgraphDepthList.innerHTML = layers.map((nodeIds, depth) => {
+      const addSummary = mutationSummary(nodeIds, 'add');
+      const removeSummary = mutationSummary(nodeIds, 'remove');
+      const totalLines = uniqueNodeIds(nodeIds).reduce((sum, nodeId) => sum + estimateCodeSize(state, state.rawNodeByKey.get(nodeId) || {}), 0);
+      return '<div class="path-item selected-item"><span class="path-step">' + depth + '</span><span class="path-main"><span class="path-label">BFS length ≤ ' + depth + '</span><span class="path-file mono">' + escapeHtml(directionLabel) + ' from ' + escapeHtml(focusNode.label || selectedNode) + '</span><span class="path-entity-meta mono">subgraph: ' + nodeIds.length + ' nodes · ' + totalLines + ' lines · add +' + addSummary.nodeIds.length + ' nodes / ' + addSummary.lines + ' lines · remove -' + removeSummary.nodeIds.length + ' nodes / ' + removeSummary.lines + ' lines</span></span><div class="snapshot-actions"><button class="btn" data-subgraph-add-depth="' + depth + '">Add</button><button class="btn" data-subgraph-remove-depth="' + depth + '">Remove</button><button class="btn" data-subgraph-show="add" data-subgraph-depth="' + depth + '">Show +' + addSummary.nodeIds.length + '</button><button class="btn" data-subgraph-show="remove" data-subgraph-depth="' + depth + '">Show -' + removeSummary.nodeIds.length + '</button></div></div>';
+    }).join('') || '<div class="path-empty">No reachable nodes.</div>';
+    renderSubgraphDetail(layers);
+  }
+  function renderSubgraphDetail(layers = subgraphDepthNodeIds()) {
+    if (!dom.subgraphDetail) return;
+    if (!subgraphDetailRequest) {
+      dom.subgraphDetail.innerHTML = '<div class="mutation-hint-empty">Use a Show button to preview which nodes will be added or removed for a BFS length.</div>';
+      return;
+    }
+    const depth = Math.max(0, Math.min(layers.length - 1, Number(subgraphDetailRequest.depth) || 0));
+    const mode = subgraphDetailRequest.mode === 'remove' ? 'remove' : 'add';
+    const summary = mutationSummary(layers[depth] || [], mode);
+    renderMutationHint(dom.subgraphDetail, (mode === 'add' ? 'Will be added' : 'Will be removed') + ' at BFS length ≤ ' + depth, summary);
+  }
   function bulkMatchOptions() {
     return {
       name: bulkNameMatchMode || 'full',
@@ -1253,6 +1316,7 @@ export function createApp(bootstrap) {
   function updateAllMutationViews() {
     updateSearchMutationViews(dom.search?.value || '');
     updateSelectedMutationButtonLabels();
+    renderSubgraphSummary();
     updateBulkTextMutationViews();
   }
 
@@ -1617,6 +1681,44 @@ export function createApp(bootstrap) {
   dom.selectedAddPathBtn.addEventListener('click', () => commitSelectionMutation('Add current path', () => currentPath.forEach((n) => selectedStateNodeSet.add(n))));
   dom.selectedRemovePathBtn.addEventListener('click', () => commitSelectionMutation('Remove current path', () => currentPath.forEach((n) => selectedStateNodeSet.delete(n))));
   dom.selectedClearAllBtn?.addEventListener('click', () => commitSelectionMutation('Remove all nodes', () => selectedStateNodeSet.clear()));
+  dom.subgraphDirection?.addEventListener('change', () => {
+    const directionEl = dom.subgraphDirection;
+    if (!(directionEl instanceof HTMLSelectElement)) return;
+    subgraphDirection = directionEl.value === 'incoming' ? 'incoming' : 'outgoing';
+    subgraphDetailRequest = null;
+    renderSubgraphSummary();
+  });
+  dom.subgraphMaxDepth?.addEventListener('input', () => {
+    const maxDepthEl = dom.subgraphMaxDepth;
+    if (!(maxDepthEl instanceof HTMLInputElement)) return;
+    subgraphMaxDepth = Math.max(0, Math.min(25, Number(maxDepthEl.value) || 0));
+    if (String(subgraphMaxDepth) !== maxDepthEl.value) maxDepthEl.value = String(subgraphMaxDepth);
+    subgraphDetailRequest = null;
+    renderSubgraphSummary();
+  });
+  dom.subgraphDepthList?.addEventListener('click', (event) => {
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+    const addButton = target.closest('[data-subgraph-add-depth]');
+    if (addButton) {
+      const depth = Number(addButton.getAttribute('data-subgraph-add-depth')) || 0;
+      const nodeIds = subgraphDepthNodeIds()[depth] || [];
+      commitSelectionMutation('Add ' + subgraphDirection + ' subgraph depth ' + depth, () => nodeIds.forEach((n) => selectedStateNodeSet.add(n)));
+      return;
+    }
+    const removeButton = target.closest('[data-subgraph-remove-depth]');
+    if (removeButton) {
+      const depth = Number(removeButton.getAttribute('data-subgraph-remove-depth')) || 0;
+      const nodeIds = subgraphDepthNodeIds()[depth] || [];
+      commitSelectionMutation('Remove ' + subgraphDirection + ' subgraph depth ' + depth, () => nodeIds.forEach((n) => selectedStateNodeSet.delete(n)));
+      return;
+    }
+    const showButton = target.closest('[data-subgraph-show]');
+    if (showButton) {
+      subgraphDetailRequest = { mode: showButton.getAttribute('data-subgraph-show') || 'add', depth: Number(showButton.getAttribute('data-subgraph-depth')) || 0 };
+      renderSubgraphSummary();
+    }
+  });
   dom.bulkTextInput?.addEventListener('input', updateBulkTextMutationViews);
   dom.bulkRenderMarkdown?.addEventListener('change', () => { bulkRenderMarkdown = dom.bulkRenderMarkdown.checked; updateBulkTextMutationViews(); });
   dom.bulkNameMatchMode?.addEventListener('change', () => { bulkNameMatchMode = dom.bulkNameMatchMode.value || 'full'; startBulkTextMatching(); });
@@ -1721,6 +1823,8 @@ export function createApp(bootstrap) {
   dom.directedToggle.checked = applyDirections;
   dom.renderEdgeDirectionToggle.checked = renderEdgeDirection;
   if (dom.graphSnapshotSort) dom.graphSnapshotSort.value = graphSnapshotSort;
+  if (dom.subgraphDirection) dom.subgraphDirection.value = subgraphDirection;
+  if (dom.subgraphMaxDepth) dom.subgraphMaxDepth.value = String(subgraphMaxDepth);
   dom.sizeBaseValue.textContent = String(nodeSizeBase);
   dom.sizeCodeFactorValue.textContent = nodeSizeCodeFactor.toFixed(3);
   applyPaneTransparency(document.documentElement, paneTransparency, dom.transparencyValue);
