@@ -22,6 +22,7 @@ export function createDom() {
 
     searchHintsOverlay: document.getElementById('search-hints-overlay'),
     searchAddToStateBtn: document.getElementById('search-add-to-state'),
+    searchAddFocusedBtn: document.getElementById('search-add-focused'),
     selectedAddNodeBtn: document.getElementById('selected-add-node'),
     selectedAddIncomingBtn: document.getElementById('selected-add-incoming'),
     selectedAddOutgoingBtn: document.getElementById('selected-add-outgoing'),
@@ -29,7 +30,10 @@ export function createDom() {
     selectedRemoveOutgoingBtn: document.getElementById('selected-remove-outgoing'),
     selectedAddPathBtn: document.getElementById('selected-add-path'),
     selectedRemovePathBtn: document.getElementById('selected-remove-path'),
+    selectedClearAllBtn: document.getElementById('selected-clear-all'),
     selectedMutationHints: document.getElementById('selected-mutation-hints'),
+    selectionHistoryStatus: document.getElementById('selection-history-status'),
+    selectionHistoryList: document.getElementById('selection-history-list'),
     bulkTextInput: document.getElementById('bulk-text-input'),
     bulkRenderMarkdown: document.getElementById('bulk-render-markdown'),
     bulkNameMatchMode: document.getElementById('bulk-name-match-mode'),

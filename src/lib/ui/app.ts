@@ -225,7 +225,21 @@ export function createApp(bootstrap) {
   let sigma = null;
   let graphSnapshots = [];
   let currentSnapshotPath = 'graph.json';
-  let graphSnapshotSort = 'time-desc';
+  let currentSnapshotMode = 'auto';
+  const STORAGE_PREFIX = 'code-graph-neo:';
+  function safeStorageRead(key, fallback = null) {
+    try {
+      const raw = window.localStorage.getItem(key);
+      return raw ? JSON.parse(raw) : fallback;
+    } catch {
+      return fallback;
+    }
+  }
+  function safeStorageWrite(key, value) {
+    try { window.localStorage.setItem(key, JSON.stringify(value)); } catch {}
+  }
+  const persistedAppState = safeStorageRead(STORAGE_PREFIX + 'app', {});
+  let graphSnapshotSort = persistedAppState?.settings?.graphSnapshotSort || 'time-desc';
   let selectedSnapshotComparePath = '';
 
   function fileLineCount(path) {
@@ -403,6 +417,8 @@ export function createApp(bootstrap) {
     pathEdgeSet = new Set();
     pathCursorIndex = -1;
     selectedStateNodeSet = new Set();
+    selectionHistory = [];
+    selectionHistoryCursor = -1;
     disabledBulkMatchKeys = new Set();
     bulkMatchJobId += 1;
     bulkMatchState = { text: '', tokens: [], matches: [], unresolved: [], nodeIds: [], processed: 0, total: 0, running: false };
@@ -440,9 +456,12 @@ export function createApp(bootstrap) {
       if (!response.ok) throw new Error(data.error || ('HTTP ' + response.status));
       state = buildGraphState(data.graph);
       currentSnapshotPath = data.snapshot?.path || path;
+      currentSnapshotMode = mode;
       selectedSnapshotComparePath = '';
+      saveGlobalPersistence();
       if (dom.graphSnapshotDetails) dom.graphSnapshotDetails.textContent = 'Click a graph row to compare it with the currently open graph.';
       rebuildGraphFromState({ resetSelections: true });
+      loadGraphPersistence();
       refreshGraphDependentViews();
       renderSnapshotPicker();
       if (dom.graphSnapshotStatus) dom.graphSnapshotStatus.textContent = 'Opened ' + currentSnapshotPath + ' as ' + graphTypeLabel() + ' graph. Last modified: ' + formatSnapshotDate(data.snapshot?.mtime) + '.';
@@ -461,15 +480,16 @@ export function createApp(bootstrap) {
 
   let hoveredNode = null;
   let selectedNode = state.currentMainKey || null;
-  let applyDirections = Boolean(graphConfig.apply_directions ?? true);
-  let renderEdgeDirection = Boolean(uiConfig.render_edge_direction ?? true);
+  const persistedSettings = persistedAppState?.settings || {};
+  let applyDirections = Boolean(persistedSettings.applyDirections ?? graphConfig.apply_directions ?? true);
+  let renderEdgeDirection = Boolean(persistedSettings.renderEdgeDirection ?? uiConfig.render_edge_direction ?? true);
   let focusedPathField = 'from';
-  let showLineNumbers = Boolean(uiConfig.show_line_numbers ?? false);
-  let wordWrapCode = Boolean(uiConfig.word_wrap_code ?? false);
-  let nodeSizeMode = graphConfig.node_size_mode || 'status';
-  let nodeSizeBase = Number(graphConfig.node_size_base ?? 11);
-  let nodeSizeCodeFactor = Number(graphConfig.node_size_code_factor ?? 0.015);
-  let paneTransparency = Number(uiConfig.pane_transparency ?? 0.58);
+  let showLineNumbers = Boolean(persistedSettings.showLineNumbers ?? uiConfig.show_line_numbers ?? false);
+  let wordWrapCode = Boolean(persistedSettings.wordWrapCode ?? uiConfig.word_wrap_code ?? false);
+  let nodeSizeMode = persistedSettings.nodeSizeMode || graphConfig.node_size_mode || 'status';
+  let nodeSizeBase = Number(persistedSettings.nodeSizeBase ?? graphConfig.node_size_base ?? 11);
+  let nodeSizeCodeFactor = Number(persistedSettings.nodeSizeCodeFactor ?? graphConfig.node_size_code_factor ?? 0.015);
+  let paneTransparency = Number(persistedSettings.paneTransparency ?? uiConfig.pane_transparency ?? 0.58);
   let foundPaths = [];
   let foundPathIndex = -1;
   let currentPath = [];
@@ -478,6 +498,8 @@ export function createApp(bootstrap) {
   let pathEdgeSet = new Set();
   let pathCursorIndex = -1;
   let selectedStateNodeSet = new Set();
+  let selectionHistory = [];
+  let selectionHistoryCursor = -1;
   let searchHintNodeSet = new Set();
   let disabledBulkMatchKeys = new Set();
   let bulkRenderMarkdown = false;
@@ -485,10 +507,88 @@ export function createApp(bootstrap) {
   let bulkFilenameMatchMode = 'full';
   let bulkMatchJobId = 0;
   let bulkMatchState = { text: '', tokens: [], matches: [], unresolved: [], nodeIds: [], processed: 0, total: 0, running: false };
-  let layoutMode = new URL(window.location.href).searchParams.get('layout') || graphConfig.layout || 'columns';
+  let layoutMode = new URL(window.location.href).searchParams.get('layout') || persistedSettings.layoutMode || graphConfig.layout || 'columns';
   let mainComponentFocusMode = false;
-  let rightPaneWidth = Number(uiConfig.pane_width ?? 420);
-  let rightPaneHeight = Math.max(360, Number(uiConfig.pane_height ?? (window.innerHeight - 32)));
+  let rightPaneWidth = Number(persistedSettings.rightPaneWidth ?? uiConfig.pane_width ?? 420);
+  let rightPaneHeight = Math.max(360, Number(persistedSettings.rightPaneHeight ?? uiConfig.pane_height ?? (window.innerHeight - 32)));
+
+  function graphPersistenceKey(path = currentSnapshotPath) { return STORAGE_PREFIX + 'graph:' + encodeURIComponent(path || 'graph.json'); }
+  function normalizeSelection(ids) { return uniqueNodeIds(ids).sort(); }
+  function currentSelectionSnapshot(label = 'Selection') {
+    return { label, at: new Date().toISOString(), nodeIds: normalizeSelection([...selectedStateNodeSet]) };
+  }
+  function sameSelection(a = [], b = []) { return a.length === b.length && a.every((value, index) => value === b[index]); }
+  function saveGlobalPersistence() {
+    safeStorageWrite(STORAGE_PREFIX + 'app', {
+      lastGraph: { path: currentSnapshotPath, mode: currentSnapshotMode },
+      settings: {
+        graphSnapshotSort, applyDirections, renderEdgeDirection, showLineNumbers, wordWrapCode, nodeSizeMode, nodeSizeBase, nodeSizeCodeFactor, paneTransparency, layoutMode, rightPaneWidth, rightPaneHeight, activeTab: document.querySelector('[data-tab-button][data-active="true"]')?.dataset.tabButton || uiConfig.active_tab || 'code-search',
+      },
+    });
+  }
+  function saveGraphPersistence() {
+    safeStorageWrite(graphPersistenceKey(), {
+      selectedNode,
+      selectedStateNodeIds: normalizeSelection([...selectedStateNodeSet]),
+      selectionHistory,
+      selectionHistoryCursor,
+    });
+  }
+  function renderSelectionHistoryTree() {
+    if (!dom.selectionHistoryList || !dom.selectionHistoryStatus) return;
+    const currentIds = normalizeSelection([...selectedStateNodeSet]);
+    dom.selectionHistoryStatus.textContent = selectionHistory.length ? ('History for ' + currentSnapshotPath + ': ' + selectionHistory.length + ' selection set(s).') : 'No selection history yet.';
+    dom.selectionHistoryList.innerHTML = selectionHistory.map((entry, idx) => {
+      const validIds = normalizeSelection(entry.nodeIds || []);
+      const lines = validIds.reduce((sum, nodeId) => sum + estimateCodeSize(state, state.rawNodeByKey.get(nodeId) || {}), 0);
+      const active = sameSelection(validIds, currentIds);
+      const indent = Math.min(idx, 12) * 10;
+      return '<div class="path-item selected-item" data-selected="' + (active ? 'true' : 'false') + '" style="margin-left:' + indent + 'px"><span class="path-step">' + idx + '</span><span class="path-main"><span class="path-label">' + escapeHtml(entry.label || 'Selection') + (active ? ' · current' : '') + '</span><span class="path-file mono">' + escapeHtml(new Date(entry.at || Date.now()).toLocaleString()) + '</span><span class="path-entity-meta mono">' + validIds.length + ' nodes · ' + lines + ' lines</span></span><button class="btn selected-remove-btn" data-restore-selection-history="' + idx + '">Restore</button></div>';
+    }).join('');
+    dom.selectionHistoryList.querySelectorAll('[data-restore-selection-history]').forEach((button) => {
+      button.addEventListener('click', () => {
+        const idx = Number(button.getAttribute('data-restore-selection-history'));
+        const entry = selectionHistory[idx];
+        if (!entry) return;
+        selectedStateNodeSet = new Set(uniqueNodeIds(entry.nodeIds || []));
+        selectionHistoryCursor = idx;
+        updateSelectedStateViews();
+        updateAllMutationViews();
+        applyVisualState(dom.search.value);
+        saveGraphPersistence();
+      });
+    });
+  }
+  function pushSelectionHistory(label) {
+    const entry = currentSelectionSnapshot(label);
+    const last = selectionHistory[selectionHistory.length - 1];
+    if (!last || !sameSelection(last.nodeIds || [], entry.nodeIds)) {
+      selectionHistory.push(entry);
+      if (selectionHistory.length > 100) selectionHistory = selectionHistory.slice(-100);
+    } else {
+      last.label = label || last.label;
+      last.at = entry.at;
+    }
+    selectionHistoryCursor = selectionHistory.length - 1;
+    renderSelectionHistoryTree();
+    saveGraphPersistence();
+  }
+  function loadGraphPersistence() {
+    const saved = safeStorageRead(graphPersistenceKey(), {});
+    selectedNode = state.rawNodeByKey.has(saved?.selectedNode) ? saved.selectedNode : (state.currentMainKey || null);
+    selectionHistory = Array.isArray(saved?.selectionHistory) ? saved.selectionHistory.map((entry) => ({ ...entry, nodeIds: normalizeSelection(entry.nodeIds || []) })).filter((entry) => entry.nodeIds.every((id) => state.rawNodeByKey.has(id))) : [];
+    selectedStateNodeSet = new Set(uniqueNodeIds(saved?.selectedStateNodeIds || selectionHistory.at(-1)?.nodeIds || []));
+    if (!selectionHistory.length) selectionHistory.push(currentSelectionSnapshot('Initial selection'));
+    selectionHistoryCursor = Number.isInteger(saved?.selectionHistoryCursor) ? Math.max(0, Math.min(selectionHistory.length - 1, saved.selectionHistoryCursor)) : selectionHistory.length - 1;
+    renderSelectionHistoryTree();
+  }
+  function commitSelectionMutation(label, mutate) {
+    mutate();
+    pushSelectionHistory(label);
+    updateSelectedStateViews();
+    updateAllMutationViews();
+    applyVisualState(dom.search.value);
+  }
 
   function refreshStateForCurrentMain() { recomputeMainComponentState(state); }
   function seedColumnLayout() {
@@ -1157,18 +1257,25 @@ export function createApp(bootstrap) {
   }
 
   function updateSearchMutationViews(query = '') {
-    if (!dom.searchAddToStateBtn) return;
     const summary = mutationSummary(searchMatchedNodeIds(query), 'add');
-    dom.searchAddToStateBtn.textContent = formatMutationLabel('Add search matches', summary, '+');
-    dom.searchAddToStateBtn.title = query.trim()
-      ? summary.lines + ' lines across ' + summary.nodeIds.length + ' currently matching node(s) will be added to selected state.'
-      : 'Enter a search query to choose nodes before adding them to selected state.';
+    if (dom.searchAddToStateBtn) {
+      dom.searchAddToStateBtn.textContent = formatMutationLabel('Add selected matches', summary, '+');
+      dom.searchAddToStateBtn.title = query.trim()
+        ? summary.lines + ' lines across ' + summary.nodeIds.length + ' currently matching node(s) will be added to selected state.'
+        : 'Enter a search query to choose nodes before adding them to selected state.';
+    }
+    if (dom.searchAddFocusedBtn) {
+      const focusedSummary = mutationSummary(selectedNode ? [selectedNode] : [], 'add');
+      dom.searchAddFocusedBtn.textContent = formatMutationLabel('Add focused node', focusedSummary, '+');
+      dom.searchAddFocusedBtn.title = selectedNode ? 'Add the currently focused graph node to selected state.' : 'Click or focus a node before adding it.';
+    }
   }
 
   function updateSelectedStateViews() {
     const items = [...selectedStateNodeSet];
     const totalLines = items.reduce((sum, nodeId) => sum + estimateCodeSize(state, state.rawNodeByKey.get(nodeId) || {}), 0);
-    dom.selectedStatus.textContent = items.length ? ('Selected-state nodes: ' + items.length + ' · ' + totalLines + ' total lines ready to copy.') : 'No selected-state nodes yet.';
+    if (dom.selectedCopyBtn) dom.selectedCopyBtn.textContent = 'Copy selected code (' + items.length + ' nodes · ' + totalLines + ' lines)';
+    dom.selectedStatus.textContent = items.length ? 'Selected code preview is ready below.' : 'No nodes selected yet.';
     dom.selectedList.innerHTML = items.map((nodeId, idx) => {
       const node = state.rawNodeByKey.get(nodeId);
       const fileColor = baseNodeBorderColor(node);
@@ -1180,10 +1287,7 @@ export function createApp(bootstrap) {
       el.addEventListener('click', () => {
         const nodeId = el.getAttribute('data-selected-remove-node');
         if (!nodeId) return;
-        selectedStateNodeSet.delete(nodeId);
-        updateSelectedStateViews();
-        updateAllMutationViews();
-        applyVisualState(dom.search.value);
+        commitSelectionMutation('Remove node', () => selectedStateNodeSet.delete(nodeId));
       });
     });
     dom.selectedCodeView.innerHTML = items.map((nodeId, idx) => {
@@ -1193,6 +1297,7 @@ export function createApp(bootstrap) {
       const code = '// file: ' + (node?.path || 'unknown') + '\n' + (preview || 'No source snippet available');
       return '<div><div class="path-code-file">' + escapeHtml(String(idx)) + '. ' + escapeHtml(node?.label || nodeId) + '</div>' + renderCodeBlock(Prism, code, startLine, showLineNumbers, wordWrapCode) + '</div>';
     }).join('');
+    renderSelectionHistoryTree();
   }
   function updateSelectedMutationButtonLabels() {
     const selected = selectedNode ? [selectedNode] : [];
@@ -1206,6 +1311,7 @@ export function createApp(bootstrap) {
     const removeOutgoing = mutationSummary(outgoing, 'remove');
     const addPath = mutationSummary(path, 'add');
     const removePath = mutationSummary(path, 'remove');
+    const clearAll = mutationSummary([...selectedStateNodeSet], 'remove');
     dom.selectedAddNodeBtn.textContent = formatMutationLabel('Add selected node', addSelected, '+');
     dom.selectedAddIncomingBtn.textContent = formatMutationLabel('Add incoming', addIncoming, '+');
     dom.selectedAddOutgoingBtn.textContent = formatMutationLabel('Add outgoing', addOutgoing, '+');
@@ -1213,6 +1319,7 @@ export function createApp(bootstrap) {
     dom.selectedRemoveOutgoingBtn.textContent = formatMutationLabel('Remove outgoing', removeOutgoing, '-');
     dom.selectedAddPathBtn.textContent = formatMutationLabel('Add current path', addPath, '+');
     dom.selectedRemovePathBtn.textContent = formatMutationLabel('Remove current path', removePath, '-');
+    if (dom.selectedClearAllBtn) dom.selectedClearAllBtn.textContent = formatMutationLabel('Remove all nodes', clearAll, '-');
     const hintParts = [
       ['Add selected node', addSelected],
       ['Add incoming', addIncoming],
@@ -1221,6 +1328,7 @@ export function createApp(bootstrap) {
       ['Remove outgoing', removeOutgoing],
       ['Add current path', addPath],
       ['Remove current path', removePath],
+      ['Remove all nodes', clearAll],
     ];
     if (dom.selectedMutationHints) dom.selectedMutationHints.innerHTML = hintParts.map(([title, summary]) => {
       const rows = summary.nodeIds.slice(0, 20).map((nodeId) => {
@@ -1376,6 +1484,7 @@ export function createApp(bootstrap) {
         document.body.style.userSelect = '';
         window.removeEventListener('pointermove', move);
         window.removeEventListener('pointerup', up);
+        saveGlobalPersistence();
       };
       dom.rightPaneResizeCorner.setPointerCapture?.(event.pointerId);
       document.body.style.cursor = 'nesw-resize';
@@ -1473,13 +1582,14 @@ export function createApp(bootstrap) {
   [dom.searchMatchName, dom.searchMatchFilename, dom.searchMatchCode].forEach((checkbox) => {
     checkbox?.addEventListener('change', () => applyVisualState(dom.search.value));
   });
-  dom.searchHintsOverlay.addEventListener('click', (event) => { const btn = event.target.closest('[data-hint-node]'); if (!btn) return; const nodeId = btn.getAttribute('data-hint-node'); if (!nodeId) return; selectedNode = nodeId; hoveredNode = nodeId; updateInspect(nodeId); applyVisualState(dom.search.value); });
+  dom.searchHintsOverlay.addEventListener('click', (event) => { const btn = event.target.closest('[data-hint-node]'); if (!btn) return; const nodeId = btn.getAttribute('data-hint-node'); if (!nodeId) return; selectedNode = nodeId; hoveredNode = nodeId; updateInspect(nodeId); updateAllMutationViews(); applyVisualState(dom.search.value); saveGraphPersistence(); });
   dom.searchAddToStateBtn?.addEventListener('click', () => {
     const summary = mutationSummary(searchMatchedNodeIds(dom.search.value), 'add');
-    summary.nodeIds.forEach((nodeId) => selectedStateNodeSet.add(nodeId));
-    updateSelectedStateViews();
-    updateAllMutationViews();
-    applyVisualState(dom.search.value);
+    commitSelectionMutation('Add selected matches', () => summary.nodeIds.forEach((nodeId) => selectedStateNodeSet.add(nodeId)));
+  });
+  dom.searchAddFocusedBtn?.addEventListener('click', () => {
+    if (!selectedNode) return;
+    commitSelectionMutation('Add focused node', () => selectedStateNodeSet.add(selectedNode));
   });
   dom.pathGoBtn.addEventListener('click', runPathSearch);
   dom.pathClearBtn.addEventListener('click', () => {
@@ -1493,14 +1603,20 @@ export function createApp(bootstrap) {
     applyVisualState(dom.search.value);
   });
   dom.pathCopyBtn.addEventListener('click', () => { copySelectedPathCodeBlocks().catch(() => updatePathStatus('Clipboard copy failed. Browser denied clipboard access.')); });
-  const mutateSelected = (mode, add) => { if (!selectedNode) return; const nodes = mode === 'node' ? [selectedNode] : (mode === 'incoming' ? graph.inboundNeighbors(selectedNode) : graph.outboundNeighbors(selectedNode)); nodes.forEach((n) => add ? selectedStateNodeSet.add(n) : selectedStateNodeSet.delete(n)); updateSelectedStateViews(); updateAllMutationViews(); applyVisualState(dom.search.value); };
+  const mutateSelected = (mode, add) => {
+    if (!selectedNode) return;
+    const nodes = mode === 'node' ? [selectedNode] : (mode === 'incoming' ? graph.inboundNeighbors(selectedNode) : graph.outboundNeighbors(selectedNode));
+    const label = (add ? 'Add ' : 'Remove ') + (mode === 'node' ? 'selected node' : mode);
+    commitSelectionMutation(label, () => nodes.forEach((n) => add ? selectedStateNodeSet.add(n) : selectedStateNodeSet.delete(n)));
+  };
   dom.selectedAddNodeBtn.addEventListener('click', () => mutateSelected('node', true));
   dom.selectedAddIncomingBtn.addEventListener('click', () => mutateSelected('incoming', true));
   dom.selectedAddOutgoingBtn.addEventListener('click', () => mutateSelected('outgoing', true));
   dom.selectedRemoveIncomingBtn.addEventListener('click', () => mutateSelected('incoming', false));
   dom.selectedRemoveOutgoingBtn.addEventListener('click', () => mutateSelected('outgoing', false));
-  dom.selectedAddPathBtn.addEventListener('click', () => { currentPath.forEach((n) => selectedStateNodeSet.add(n)); updateSelectedStateViews(); updateAllMutationViews(); applyVisualState(dom.search.value); });
-  dom.selectedRemovePathBtn.addEventListener('click', () => { currentPath.forEach((n) => selectedStateNodeSet.delete(n)); updateSelectedStateViews(); updateAllMutationViews(); applyVisualState(dom.search.value); });
+  dom.selectedAddPathBtn.addEventListener('click', () => commitSelectionMutation('Add current path', () => currentPath.forEach((n) => selectedStateNodeSet.add(n))));
+  dom.selectedRemovePathBtn.addEventListener('click', () => commitSelectionMutation('Remove current path', () => currentPath.forEach((n) => selectedStateNodeSet.delete(n))));
+  dom.selectedClearAllBtn?.addEventListener('click', () => commitSelectionMutation('Remove all nodes', () => selectedStateNodeSet.clear()));
   dom.bulkTextInput?.addEventListener('input', updateBulkTextMutationViews);
   dom.bulkRenderMarkdown?.addEventListener('change', () => { bulkRenderMarkdown = dom.bulkRenderMarkdown.checked; updateBulkTextMutationViews(); });
   dom.bulkNameMatchMode?.addEventListener('change', () => { bulkNameMatchMode = dom.bulkNameMatchMode.value || 'full'; startBulkTextMatching(); });
@@ -1508,9 +1624,9 @@ export function createApp(bootstrap) {
   const toggleBulkMatch = (key) => { if (!key) return; if (disabledBulkMatchKeys.has(key)) disabledBulkMatchKeys.delete(key); else disabledBulkMatchKeys.add(key); updateBulkTextMutationViews(); };
   dom.bulkAnnotatedText?.addEventListener('click', (event) => { const target = event.target; if (!(target instanceof Element)) return; const button = target.closest('[data-bulk-match-key]'); if (button) toggleBulkMatch(button.getAttribute('data-bulk-match-key')); });
   dom.bulkMatchAnnotations?.addEventListener('click', (event) => { const target = event.target; if (!(target instanceof Element)) return; const button = target.closest('[data-bulk-match-key]'); if (button) toggleBulkMatch(button.getAttribute('data-bulk-match-key')); });
-  dom.bulkAddBtn?.addEventListener('click', () => { parseBulkTextNodeIds().nodeIds.forEach((n) => selectedStateNodeSet.add(n)); updateSelectedStateViews(); updateAllMutationViews(); applyVisualState(dom.search.value); });
-  dom.bulkRemoveBtn?.addEventListener('click', () => { parseBulkTextNodeIds().nodeIds.forEach((n) => selectedStateNodeSet.delete(n)); updateSelectedStateViews(); updateAllMutationViews(); applyVisualState(dom.search.value); });
-  dom.selectedCopyBtn.addEventListener('click', async () => { const text = [...selectedStateNodeSet].map((nodeId) => { const node = state.rawNodeByKey.get(nodeId); const preview = sourcePreview(state, node || {}) || 'No source snippet available'; const startLine = node?.range?.start?.line || 1; return '// file: ' + (node?.path || 'unknown') + '\n' + withLineNumbers(preview, startLine, showLineNumbers); }).join('\n\n'); await navigator.clipboard.writeText(text); dom.selectedStatus.textContent = 'Copied ' + selectedStateNodeSet.size + ' selected-state code block(s).'; });
+  dom.bulkAddBtn?.addEventListener('click', () => commitSelectionMutation('Add bulk text matches', () => parseBulkTextNodeIds().nodeIds.forEach((n) => selectedStateNodeSet.add(n))));
+  dom.bulkRemoveBtn?.addEventListener('click', () => commitSelectionMutation('Remove bulk text matches', () => parseBulkTextNodeIds().nodeIds.forEach((n) => selectedStateNodeSet.delete(n))));
+  dom.selectedCopyBtn.addEventListener('click', async () => { const text = [...selectedStateNodeSet].map((nodeId) => { const node = state.rawNodeByKey.get(nodeId); const preview = sourcePreview(state, node || {}) || 'No source snippet available'; const startLine = node?.range?.start?.line || 1; return '// file: ' + (node?.path || 'unknown') + '\n' + withLineNumbers(preview, startLine, showLineNumbers); }).join('\n\n'); await navigator.clipboard.writeText(text); dom.selectedStatus.textContent = 'Copied ' + selectedStateNodeSet.size + ' selected code block(s).'; });
   dom.pathReverseBtn.addEventListener('click', () => {
     const from = dom.pathFromInput.value;
     dom.pathFromInput.value = dom.pathToInput.value;
@@ -1524,6 +1640,7 @@ export function createApp(bootstrap) {
     applyDirections = dom.directedToggle.checked;
     if (dom.pathFromInput.value || dom.pathToInput.value) runPathSearch();
     else updatePathStatus(applyDirections ? 'Directed traversal enabled.' : 'Ignoring edge direction.');
+    saveGlobalPersistence();
   });
   dom.rightPane?.addEventListener('click', async (event) => {
     const target = event.target;
@@ -1540,19 +1657,20 @@ export function createApp(bootstrap) {
       setTimeout(() => { button.textContent = original || 'Copy'; }, 1200);
     }
   });
-  dom.renderEdgeDirectionToggle.addEventListener('change', () => { renderEdgeDirection = dom.renderEdgeDirectionToggle.checked; sigma.refresh(); });
-  dom.lineNumbersToggle.addEventListener('change', () => { showLineNumbers = dom.lineNumbersToggle.checked; if (selectedNode) updateInspect(selectedNode); renderPathCodeView(); updateSelectedStateViews(); updateAllMutationViews(); });
-  dom.wordWrapToggle.addEventListener('change', () => { wordWrapCode = dom.wordWrapToggle.checked; if (selectedNode) updateInspect(selectedNode); renderPathCodeView(); updateSelectedStateViews(); });
+  dom.renderEdgeDirectionToggle.addEventListener('change', () => { renderEdgeDirection = dom.renderEdgeDirectionToggle.checked; sigma.refresh(); saveGlobalPersistence(); });
+  dom.lineNumbersToggle.addEventListener('change', () => { showLineNumbers = dom.lineNumbersToggle.checked; if (selectedNode) updateInspect(selectedNode); renderPathCodeView(); updateSelectedStateViews(); updateAllMutationViews(); saveGlobalPersistence(); });
+  dom.wordWrapToggle.addEventListener('change', () => { wordWrapCode = dom.wordWrapToggle.checked; if (selectedNode) updateInspect(selectedNode); renderPathCodeView(); updateSelectedStateViews(); saveGlobalPersistence(); });
   dom.layoutModeSelect.addEventListener('change', () => {
     layoutMode = dom.layoutModeSelect.value;
     const next = new URL(window.location.href);
     next.searchParams.set('layout', layoutMode);
+    saveGlobalPersistence();
     window.location.href = next.toString();
   });
-  dom.sizeModeSelect.addEventListener('change', () => { nodeSizeMode = dom.sizeModeSelect.value; refreshBaseNodeStyles(); applyVisualState(dom.search.value); });
-  dom.sizeBaseInput.addEventListener('input', () => { nodeSizeBase = Number(dom.sizeBaseInput.value); dom.sizeBaseValue.textContent = String(nodeSizeBase); refreshBaseNodeStyles(); applyVisualState(dom.search.value); });
-  dom.sizeCodeFactorInput.addEventListener('input', () => { nodeSizeCodeFactor = Number(dom.sizeCodeFactorInput.value); dom.sizeCodeFactorValue.textContent = nodeSizeCodeFactor.toFixed(3); refreshBaseNodeStyles(); applyVisualState(dom.search.value); });
-  dom.transparencyInput.addEventListener('input', () => { paneTransparency = Number(dom.transparencyInput.value); applyPaneTransparency(document.documentElement, paneTransparency, dom.transparencyValue); });
+  dom.sizeModeSelect.addEventListener('change', () => { nodeSizeMode = dom.sizeModeSelect.value; refreshBaseNodeStyles(); applyVisualState(dom.search.value); saveGlobalPersistence(); });
+  dom.sizeBaseInput.addEventListener('input', () => { nodeSizeBase = Number(dom.sizeBaseInput.value); dom.sizeBaseValue.textContent = String(nodeSizeBase); refreshBaseNodeStyles(); applyVisualState(dom.search.value); saveGlobalPersistence(); });
+  dom.sizeCodeFactorInput.addEventListener('input', () => { nodeSizeCodeFactor = Number(dom.sizeCodeFactorInput.value); dom.sizeCodeFactorValue.textContent = nodeSizeCodeFactor.toFixed(3); refreshBaseNodeStyles(); applyVisualState(dom.search.value); saveGlobalPersistence(); });
+  dom.transparencyInput.addEventListener('input', () => { paneTransparency = Number(dom.transparencyInput.value); applyPaneTransparency(document.documentElement, paneTransparency, dom.transparencyValue); saveGlobalPersistence(); });
   dom.collapseSidebarBtn.addEventListener('click', () => {
     const collapsed = dom.appRoot.dataset.sidebarCollapsed !== 'true';
     setSidebarCollapsed(dom.appRoot, dom.collapseSidebarBtn, collapsed);
@@ -1571,8 +1689,8 @@ export function createApp(bootstrap) {
     if (chosen) setMainFromNode(chosen.key);
   });
   dom.graphSnapshotRefreshBtn?.addEventListener('click', refreshSnapshotList);
-  dom.graphSnapshotSort?.addEventListener('change', () => { graphSnapshotSort = dom.graphSnapshotSort.value; renderSnapshotPicker(); });
-  dom.sidebarTabs.forEach((btn) => btn.addEventListener('click', () => setActiveTab(dom.sidebarTabs, dom.sidebarPanels, btn.dataset.tabButton)));
+  dom.graphSnapshotSort?.addEventListener('change', () => { graphSnapshotSort = dom.graphSnapshotSort.value; renderSnapshotPicker(); saveGlobalPersistence(); });
+  dom.sidebarTabs.forEach((btn) => btn.addEventListener('click', () => { setActiveTab(dom.sidebarTabs, dom.sidebarPanels, btn.dataset.tabButton); saveGlobalPersistence(); }));
   dom.pathFromInput.addEventListener('focus', () => { focusedPathField = 'from'; syncFocusedFieldUI(); });
   dom.pathToInput.addEventListener('focus', () => { focusedPathField = 'to'; syncFocusedFieldUI(); });
   dom.pathFromInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') runPathSearch(); });
@@ -1588,6 +1706,7 @@ export function createApp(bootstrap) {
     updateInspect(node);
     updateAllMutationViews();
     applyVisualState(dom.search.value);
+    saveGraphPersistence();
   });
   sigma.on('enterNode', ({ node }) => { hoveredNode = node; applyVisualState(dom.search.value); });
   sigma.on('leaveNode', () => { hoveredNode = null; applyVisualState(dom.search.value); });
@@ -1606,10 +1725,11 @@ export function createApp(bootstrap) {
   dom.sizeCodeFactorValue.textContent = nodeSizeCodeFactor.toFixed(3);
   applyPaneTransparency(document.documentElement, paneTransparency, dom.transparencyValue);
   syncFocusedFieldUI();
-  setActiveTab(dom.sidebarTabs, dom.sidebarPanels, uiConfig.active_tab || 'code-search');
+  setActiveTab(dom.sidebarTabs, dom.sidebarPanels, persistedSettings.activeTab || uiConfig.active_tab || 'code-search');
   setSidebarCollapsed(dom.appRoot, dom.collapseSidebarBtn, false);
   applyFloatingPaneSize();
   attachRightPaneResize();
+  loadGraphPersistence();
   renderPathList();
   renderPathCodeView();
   updateSelectedStateViews();
@@ -1618,4 +1738,10 @@ export function createApp(bootstrap) {
   if (selectedNode) updateInspect(selectedNode);
   applyVisualState();
   refreshSnapshotList();
+  const lastGraph = persistedAppState?.lastGraph;
+  if (lastGraph?.path && (lastGraph.path !== currentSnapshotPath || (lastGraph.mode || 'auto') !== currentSnapshotMode)) {
+    openGraphSnapshot(lastGraph.path, lastGraph.mode || 'auto');
+  } else {
+    saveGlobalPersistence();
+  }
 }

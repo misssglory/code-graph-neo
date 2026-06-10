@@ -48,7 +48,8 @@ export function renderHtml(graphData: GraphData, config: any = {}): string {
     h3 { margin: 14px 0 8px; font-size: 13px; color: var(--text); }
     p { color: var(--muted); line-height: 1.5; }
     .topbar { display: flex; gap: 8px; align-items: center; justify-content: space-between; margin-bottom: 12px; }
-    .tab-row { display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
+    .tab-row { display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: nowrap; overflow-x: auto; overflow-y: hidden; white-space: nowrap; scrollbar-width: thin; }
+    .tab-btn { flex: 0 0 auto; }
     .tab-btn, .btn { padding: 10px 12px; border-radius: 10px; border: 1px solid var(--border); background: rgba(255,255,255,0.05); color: var(--text); cursor: pointer; }
     .tab-btn[data-active="true"], .btn[data-active="true"] { background: rgba(255,255,255,0.08); }
     .btn:hover, .tab-btn:hover { background: rgba(255,255,255,0.08); }
@@ -214,6 +215,7 @@ export function renderHtml(graphData: GraphData, config: any = {}): string {
           <button class="tab-btn" data-tab-button="find-path" data-active="false">find path</button>
           <button class="tab-btn" data-tab-button="selected-nodes" data-active="false">selected nodes</button>
           <button class="tab-btn" data-tab-button="bulk-text" data-active="false">bulk text</button>
+          <button class="tab-btn" data-tab-button="selection-history" data-active="false">selection history tree</button>
           <button class="tab-btn" data-tab-button="graphs" data-active="false">graphs</button>
         </div>
         <div class="sidebar-content">
@@ -228,8 +230,8 @@ export function renderHtml(graphData: GraphData, config: any = {}): string {
                 <label><input id="search-match-code" type="checkbox" checked /> code</label>
               </div>
               <datalist id="search-hints"></datalist>
+              <div class="row" style="margin-top:8px;"><button id="search-add-to-state" class="btn">Add selected matches (+0 nodes · 0 lines)</button><button id="search-add-focused" class="btn">Add focused node (+0 nodes · 0 lines)</button></div>
               <div id="search-hints-overlay" class="search-hints-overlay" hidden></div>
-              <div class="row" style="margin-top:8px;"><button id="search-add-to-state" class="btn">Add search matches (+0 nodes · 0 lines)</button></div>
               <div id="selection" class="meta">Focus source or sink, then click a node to assign it. The focused field gets the clicked node. After a path appears, focus the list and use arrows or Ctrl-J/Ctrl-K, then Enter.</div>
             </div>
             <div class="section-card">
@@ -259,11 +261,18 @@ export function renderHtml(graphData: GraphData, config: any = {}): string {
               <h2>Selected state</h2>
               <div class="row"><button id="selected-add-node" class="btn">Add selected node</button><button id="selected-add-incoming" class="btn">Add incoming</button><button id="selected-add-outgoing" class="btn">Add outgoing</button></div>
               <div class="row" style="margin-top:8px;"><button id="selected-remove-incoming" class="btn">Remove incoming</button><button id="selected-remove-outgoing" class="btn">Remove outgoing</button></div>
-              <div class="row" style="margin-top:8px;"><button id="selected-add-path" class="btn">Add current path</button><button id="selected-remove-path" class="btn">Remove current path</button><button id="selected-copy" class="btn">Copy selected code</button></div>
+              <div class="row" style="margin-top:8px;"><button id="selected-add-path" class="btn">Add current path</button><button id="selected-remove-path" class="btn">Remove current path</button><button id="selected-clear-all" class="btn">Remove all nodes</button><button id="selected-copy" class="btn">Copy selected code (0 nodes · 0 lines)</button></div>
               <div id="selected-mutation-hints" class="mutation-hints"></div>
-              <div id="selected-status" class="status-box">No selected-state nodes yet.</div>
+              <div id="selected-status" class="status-box">No nodes selected yet.</div>
               <div id="selected-list" class="path-list"></div>
               <div id="selected-code-view" class="path-code-view"></div>
+            </div>
+          </section>
+          <section data-tab-panel="selection-history" hidden>
+            <div class="section-card">
+              <h2>Selection history tree</h2>
+              <div id="selection-history-status" class="status-box">No selection history yet.</div>
+              <div id="selection-history-list" class="path-list"></div>
             </div>
           </section>
           <section data-tab-panel="bulk-text" hidden>
