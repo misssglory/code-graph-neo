@@ -214,6 +214,7 @@ export function renderHtml(graphData: GraphData, config: any = {}): string {
           <button class="tab-btn" data-tab-button="settings" data-active="false">settings</button>
           <button class="tab-btn" data-tab-button="find-path" data-active="false">find path</button>
           <button class="tab-btn" data-tab-button="selected-nodes" data-active="false">selected nodes</button>
+          <button class="tab-btn" data-tab-button="focused-subgraph" data-active="false">focused subgraph</button>
           <button class="tab-btn" data-tab-button="bulk-text" data-active="false">bulk text</button>
           <button class="tab-btn" data-tab-button="selection-history" data-active="false">selection history tree</button>
           <button class="tab-btn" data-tab-button="graphs" data-active="false">graphs</button>
@@ -266,6 +267,25 @@ export function renderHtml(graphData: GraphData, config: any = {}): string {
               <div id="selected-status" class="status-box">No nodes selected yet.</div>
               <div id="selected-list" class="path-list"></div>
               <div id="selected-code-view" class="path-code-view"></div>
+            </div>
+          </section>
+          <section data-tab-panel="focused-subgraph" hidden>
+            <div class="section-card">
+              <h2>Focused node subgraph</h2>
+              <div class="status-box" id="subgraph-status">Click a graph node to focus it, then choose outgoing or ingoing BFS expansion.</div>
+              <div class="bulk-match-options">
+                <label for="subgraph-direction">Direction
+                  <select id="subgraph-direction" class="select-input">
+                    <option value="outgoing" selected>Outgoing callees / targets</option>
+                    <option value="incoming">Ingoing callers / sources</option>
+                  </select>
+                </label>
+                <label for="subgraph-max-depth">Maximum BFS length
+                  <input id="subgraph-max-depth" class="text-input" type="number" min="0" max="25" value="3" />
+                </label>
+              </div>
+              <div id="subgraph-depth-list" class="path-list"></div>
+              <div id="subgraph-detail" class="mutation-hints"></div>
             </div>
           </section>
           <section data-tab-panel="selection-history" hidden>
