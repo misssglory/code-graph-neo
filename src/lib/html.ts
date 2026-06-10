@@ -171,6 +171,29 @@ export function renderHtml(graphData: GraphData, config: any = {}): string {
     .bulk-match-row[data-enabled="false"] mark { color: var(--path); background: transparent; border-style: dashed; }
     .bulk-match-toggle { padding: 3px 7px; border-radius: 999px; font-size: 11px; }
     @keyframes bulkMatchPulse { 0% { box-shadow: 0 0 0 0 rgba(255,213,79,0.55); } 70% { box-shadow: 0 0 0 8px rgba(255,213,79,0); } 100% { box-shadow: 0 0 0 0 rgba(255,213,79,0); } }
+
+    .insert-function-layout { display: grid; gap: 10px; }
+    .insert-function-subtabs { display: flex; align-items: center; gap: 6px; overflow-x: auto; padding-bottom: 2px; scrollbar-width: thin; }
+    .insert-function-tab { flex: 0 0 auto; display: inline-flex; align-items: center; gap: 6px; max-width: 220px; padding: 7px 8px 7px 10px; border-radius: 999px; border: 1px solid var(--border); background: rgba(255,255,255,0.04); color: var(--text); cursor: pointer; font-family: var(--mono); font-size: 12px; }
+    .insert-function-tab[data-active="true"] { border-color: rgba(99,215,255,0.55); background: rgba(99,215,255,0.12); }
+    .insert-function-tab-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .insert-function-tab-close { display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 16px; border-radius: 999px; border: 1px solid transparent; color: var(--muted); opacity: 0; transition: opacity 120ms ease, background 120ms ease, color 120ms ease; }
+    .insert-function-tab:hover .insert-function-tab-close, .insert-function-tab:focus-visible .insert-function-tab-close { opacity: 1; }
+    .insert-function-tab-close:hover { color: #fff; background: rgba(255,126,126,0.22); border-color: rgba(255,126,126,0.42); }
+    .insert-function-add-tab { flex: 0 0 auto; width: 30px; height: 30px; padding: 0; border-radius: 999px; font-size: 18px; line-height: 1; }
+    .insert-function-match-list { display: grid; gap: 6px; }
+    .insert-function-match { width: 100%; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: baseline; text-align: left; padding: 8px 10px; border-radius: 10px; border: 1px solid var(--border); background: rgba(255,255,255,0.035); color: var(--text); cursor: pointer; }
+    .insert-function-match[data-active="true"] { border-color: rgba(255,213,79,0.55); background: rgba(255,213,79,0.10); }
+    .insert-function-match-main { min-width: 0; }
+    .insert-function-match-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--mono); }
+    .insert-function-match-meta { margin-top: 2px; color: var(--muted); font-size: 11px; font-family: var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .insert-function-match-score { color: var(--path); font-family: var(--mono); font-size: 11px; }
+    .insert-function-diff-meta { display: flex; flex-wrap: wrap; gap: 8px; color: var(--muted); font-size: 12px; margin-bottom: 8px; }
+    .diff-block { margin: 0; padding: 10px; border-radius: 10px; background: rgba(0,0,0,0.42); overflow: auto; font-family: var(--mono); font-size: 12px; line-height: 1.45; }
+    .diff-line { display: block; white-space: pre; padding: 0 4px; border-left: 3px solid transparent; }
+    .diff-line[data-kind="add"] { color: #c8f7d4; background: rgba(103,219,139,0.12); border-left-color: var(--reach); }
+    .diff-line[data-kind="del"] { color: #ffcaca; background: rgba(255,126,126,0.13); border-left-color: var(--unreach); }
+    .diff-line[data-kind="ctx"] { color: #dce2ef; }
     [hidden] { display: none !important; }
     .app[data-sidebar-collapsed="true"] .right-pane-wrap { width: 56px !important; height: 56px !important; }
     .app[data-sidebar-collapsed="true"] .right-pane-resize-corner { display: none; }
@@ -216,6 +239,7 @@ export function renderHtml(graphData: GraphData, config: any = {}): string {
           <button class="tab-btn" data-tab-button="selected-nodes" data-active="false">selected nodes</button>
           <button class="tab-btn" data-tab-button="focused-subgraph" data-active="false">focused subgraph</button>
           <button class="tab-btn" data-tab-button="bulk-text" data-active="false">bulk text</button>
+          <button class="tab-btn" data-tab-button="insert-function" data-active="false">insert function</button>
           <button class="tab-btn" data-tab-button="selection-history" data-active="false">selection history tree</button>
           <button class="tab-btn" data-tab-button="graphs" data-active="false">graphs</button>
         </div>
@@ -322,6 +346,19 @@ export function renderHtml(graphData: GraphData, config: any = {}): string {
               <div id="bulk-status" class="status-box">No text nodes resolved yet.</div>
               <div id="bulk-match-annotations" class="bulk-match-annotations"><div class="mutation-hint-empty">No matched text parts yet.</div></div>
               <div class="mutation-hints"><div id="bulk-add-hints"></div><div id="bulk-remove-hints"></div></div>
+            </div>
+          </section>
+
+          <section data-tab-panel="insert-function" hidden>
+            <div class="section-card">
+              <h2>Insert function diff</h2>
+              <div class="insert-function-layout">
+                <textarea id="insert-function-input" class="textarea-input" placeholder="Paste the function you want to insert or compare. The first line is used to find the most relevant node by function name; code text distance is used as a fallback."></textarea>
+                <div id="insert-function-status" class="status-box">Paste function code to find the most relevant existing node.</div>
+                <div id="insert-function-subtabs" class="insert-function-subtabs" aria-label="Matched node subtabs"></div>
+                <div id="insert-function-matches" class="insert-function-match-list"></div>
+                <div id="insert-function-code-view" class="path-code-view"></div>
+              </div>
             </div>
           </section>
           <section data-tab-panel="settings" hidden>
